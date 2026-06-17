@@ -1,0 +1,657 @@
+# Tasks FFmpeg Integration VidmePro+
+
+Target: semua kemampuan FFmpeg yang relevan untuk editor video dibuat tersedia lewat tombol command berikon, panel properti kanan, preview canvas, dan pipeline render/export. Karena daftar codec/filter FFmpeg bisa berbeda di tiap PC, implementasi wajib punya mode dinamis: fitur umum dibuat UI khusus, sedangkan codec/filter/muxer/encoder yang hanya muncul di build FFmpeg tertentu tetap bisa diakses lewat command browser.
+
+## Prinsip Implementasi
+
+- [*] Gunakan FFmpeg native di Electron jika tersedia di PC user, fallback ke `@ffmpeg/ffmpeg` wasm untuk browser/dev.
+- [ ] Semua perubahan edit bersifat non-destructive: file asli tidak pernah ditimpa.
+- [ ] Preview gambar/video tetap cepat di canvas; FFmpeg dipakai untuk generate proxy, thumbnail, waveform, metadata, dan render final.
+- [*] Semua command punya icon dari `lucide-react`, tooltip, status progress, cancel, dan pesan error yang jelas.
+- [ ] Semua fitur yang mengubah klip disimpan ke state clip/project, bukan hanya diproses sekali lalu hilang.
+- [ ] Panel kanan tetap kontekstual: video menampilkan video controls, audio menampilkan audio controls, image menampilkan image controls, text/sticker menampilkan kontrolnya sendiri.
+- [x] Tampilan existing harus tetap sama saat fondasi FFmpeg native ditambahkan; perubahan visual hanya dilakukan saat implementasi fitur UI memang dijadwalkan.
+- [*] Fitur FFmpeg lengkap ditutup lewat dua jalur:
+  - [ ] UI curated untuk fitur editing utama seperti brightness, crop, audio filter, export, metadata.
+  - [*] FFmpeg Command Browser untuk semua `filters`, `encoders`, `decoders`, `formats`, `codecs`, `protocols`, `bsfs`, dan `pix_fmts` yang ditemukan dari binary FFmpeg aktif.
+
+## Phase 1 - FFmpeg Runtime Native + Wasm
+
+- [*] Tambahkan service Electron IPC di `electron/main.cjs` untuk menjalankan `ffmpeg` native jika tersedia.
+- [*] Tambahkan `electron/preload.cjs` sebagai bridge aman dari React ke Electron main process.
+- [*] Buat util `src/utils/ffmpegRuntime.js` untuk memilih runtime:
+  - [*] `native` untuk Electron desktop.
+  - [*] `wasm` untuk browser fallback.
+  - [*] `unavailable` dengan pesan install bila keduanya gagal.
+- [*] Tambahkan command detection:
+  - [*] `ffmpeg -version`
+  - [*] `ffmpeg -buildconf`
+  - [*] `ffmpeg -filters`
+  - [*] `ffmpeg -encoders`
+  - [*] `ffmpeg -decoders`
+  - [*] `ffmpeg -codecs`
+  - [*] `ffmpeg -formats`
+  - [*] `ffmpeg -muxers`
+  - [*] `ffmpeg -demuxers`
+  - [*] `ffmpeg -protocols`
+  - [*] `ffmpeg -bsfs`
+  - [*] `ffmpeg -pix_fmts`
+  - [*] `ffmpeg -sample_fmts`
+  - [*] `ffmpeg -layouts`
+  - [*] `ffmpeg -hwaccels`
+- [*] Cache capability result di session renderer supaya UI/helper tahu fitur mana yang aktif.
+- [*] Tambahkan `FFmpegStatusBadge` di header atau export modal:
+  - [*] FFmpeg native aktif.
+  - [*] FFmpeg wasm aktif.
+  - [*] GPU encoder tersedia.
+  - [*] FFprobe tersedia.
+- [*] Tambahkan progress parser dari output FFmpeg:
+  - [*] `time=`
+  - [*] `speed=`
+  - [*] `frame=`
+  - [*] `bitrate=`
+  - [*] estimasi persen berdasarkan durasi.
+- [*] Tambahkan cancel render/process:
+  - [*] Native: kill process.
+  - [*] Wasm: terminate worker/reload instance.
+- [*] MP4 export mencoba FFmpeg native lebih dulu, lalu fallback ke FFmpeg.wasm jika native gagal.
+- [*] Encoder H.264 otomatis memilih `h264_nvenc` > `h264_qsv` > `h264_amf` > `libx264`.
+
+## Phase 2 - FFprobe Metadata Lengkap
+
+- [*] Buat `src/utils/ffprobeService.js`.
+- [*] Saat import media, jalankan metadata probe:
+  - [*] format name.
+  - [*] duration.
+  - [*] size.
+  - [*] bit rate.
+  - [*] creation time.
+  - [*] video codec.
+  - [*] audio codec.
+  - [*] subtitle streams.
+  - [*] width/height.
+  - [*] fps.
+  - [*] sample rate.
+  - [*] channel layout.
+  - [*] pixel format.
+  - [*] color range.
+  - [*] color space.
+  - [*] rotation.
+  - [*] attached cover art.
+- [*] Simpan metadata lengkap ke `media.metadata.ffprobe`.
+- [*] Update `RightPanel.jsx` metadata box:
+  - [*] tab `Info`.
+  - [*] tab `Streams`.
+  - [*] tab `Codec`.
+  - [*] tab `Raw`.
+- [*] Tambahkan tombol command di metadata box:
+  - [*] `Copy` metadata JSON.
+  - [*] `Refresh` metadata.
+  - [*] `Reveal` file.
+  - [*] `Proxy` generate proxy.
+  - [*] `Thumb` generate thumbnail.
+
+## Phase 3 - Command Registry + Icon Buttons
+
+- [*] Buat `src/utils/ffmpegCommands.js`.
+- [*] Definisikan command registry:
+  - [*] `id`
+  - [*] `label`
+  - [*] `icon`
+  - [*] `category`
+  - [*] `mediaTypes`
+  - [*] `requiresNative`
+  - [*] `ffmpegArgsBuilder`
+  - [*] `previewArgsBuilder`
+  - [*] `statePatchBuilder`
+  - [*] `defaultParams`
+  - [*] `paramSchema`
+- [*] Buat komponen `CommandButton.jsx`:
+  - [*] icon lucide.
+  - [*] tooltip.
+  - [*] disabled reason.
+  - [*] active state jika efek sudah diterapkan.
+- [*] Buat `CommandPalettePanel.jsx` untuk daftar tombol command:
+  - [*] Import.
+  - [*] Convert.
+  - [*] Video.
+  - [*] Audio.
+  - [*] Image.
+  - [*] Subtitle.
+  - [*] Metadata.
+  - [*] Export.
+  - [*] Advanced.
+- [*] Tambahkan tombol command cepat di toolbar timeline:
+  - [*] Split.
+  - [*] Trim.
+  - [*] Crop.
+  - [*] Freeze Frame.
+  - [*] Extract Audio.
+  - [*] Snapshot.
+  - [*] Normalize.
+  - [*] Proxy.
+  - [*] Render Selection.
+- [*] Tambahkan command browser untuk fitur dinamis hasil `ffmpeg -filters` dkk:
+  - [*] search.
+  - [*] category.
+  - [*] show syntax.
+  - [*] save preset.
+  - [*] apply to selected clip.
+
+## Phase 4 - Preview Canvas untuk Gambar dan Video
+
+- [ ] Pastikan preview media library:
+  - [ ] image langsung tampil di canvas.
+  - [ ] video bisa play, pause, scrub, dan loop.
+  - [ ] audio menampilkan waveform/cover placeholder.
+- [ ] Pastikan preview timeline:
+  - [ ] video active clip dirender ke canvas.
+  - [ ] image clip dirender ke canvas.
+  - [ ] text/sticker/overlay dirender di atas video/image.
+  - [ ] filter canvas realtime mengikuti state clip.
+- [ ] Tambahkan preview mode:
+  - [ ] `Realtime Canvas` untuk scrub cepat.
+  - [ ] `FFmpeg Accurate Frame` untuk frame final yang presisi.
+- [*] Tambahkan tombol command di bawah canvas:
+  - [*] Snapshot frame.
+  - [ ] Compare before/after.
+  - [*] Toggle safe area.
+  - [*] Toggle alpha/grid.
+  - [ ] Render preview range.
+- [*] Buat `src/utils/ffmpegPreviewFrame.js`:
+  - [*] extract frame dari source.
+  - [*] apply selected filter chain.
+  - [*] return blob/image bitmap ke canvas.
+- [*] Tambahkan cache frame:
+  - [*] key berdasarkan media id, timestamp, filter hash.
+  - [*] max cache size agar RAM aman.
+
+## Phase 5 - Right Panel Layout Baru
+
+- [*] Refactor `RightPanel.jsx` menjadi inspector bertab:
+  - [*] `Info` selalu muncul jika ada media/clip.
+  - [*] `Video` muncul untuk video/image.
+  - [*] `Audio` muncul hanya jika item audio terpilih atau video punya audio stream.
+  - [*] `Filter` muncul untuk video/image.
+  - [*] `Audio FX` hanya muncul jika item audio terpilih.
+  - [*] `Export` muncul untuk selected clip/range.
+  - [*] `Advanced` muncul untuk raw FFmpeg command.
+- [*] Di bawah metadata box, tambahkan section `Command Cepat`:
+  - [*] Convert.
+  - [*] Compress.
+  - [*] Extract audio.
+  - [*] Snapshot.
+  - [*] Proxy.
+  - [*] Analyze.
+- [*] Untuk video/image, tambahkan section `Visual Adjustments`:
+  - [*] Brightness.
+  - [*] Contrast.
+  - [*] Saturation.
+  - [*] Hue.
+  - [*] Exposure.
+  - [*] Gamma.
+  - [*] Temperature.
+  - [*] Tint.
+  - [*] Sharpness.
+  - [*] Blur.
+  - [*] Vignette.
+  - [*] LUT.
+- [*] Untuk audio, tampilkan `Audio FX` hanya saat `clipType === "audio"`:
+  - [*] Volume.
+  - [*] Gain.
+  - [*] Normalize.
+  - [*] Loudness.
+  - [*] Compressor.
+  - [*] Limiter.
+  - [*] EQ.
+  - [*] Noise reduction.
+  - [*] Fade in/out.
+  - [*] Pitch.
+  - [*] Tempo.
+  - [*] Reverb.
+  - [*] Echo.
+- [*] Untuk video yang punya audio stream, tampilkan mini audio controls, bukan tab audio penuh:
+  - [*] mute.
+  - [*] volume.
+  - [*] extract audio.
+  - [*] detach audio.
+
+## Phase 6 - Video Filter UI Lengkap
+
+- [ ] Implementasikan filter visual umum dengan preview canvas dan render FFmpeg:
+  - [ ] `eq` brightness/contrast/saturation/gamma.
+  - [ ] `hue` hue/saturation.
+  - [ ] `curves` RGB curves.
+  - [ ] `colorbalance`.
+  - [ ] `colorchannelmixer`.
+  - [ ] `unsharp`.
+  - [ ] `boxblur`.
+  - [ ] `gblur`.
+  - [ ] `smartblur`.
+  - [ ] `vignette`.
+  - [ ] `noise`.
+  - [ ] `denoise` dengan `hqdn3d`.
+  - [ ] `lut3d`.
+  - [ ] `negate`.
+  - [ ] `grayscale`.
+  - [ ] `sepia` via color matrix.
+  - [ ] `chromakey`.
+  - [ ] `colorkey`.
+  - [ ] `deshake`.
+  - [ ] `vidstabdetect` jika build mendukung.
+  - [ ] `vidstabtransform` jika build mendukung.
+  - [ ] `fps`.
+  - [ ] `minterpolate`.
+  - [ ] `setpts` speed/time.
+  - [ ] `reverse`.
+  - [ ] `freeze frame`.
+  - [ ] `thumbnail`.
+  - [ ] `tile`.
+  - [ ] `drawbox`.
+  - [ ] `drawtext`.
+  - [ ] `overlay`.
+  - [ ] `pad`.
+  - [ ] `crop`.
+  - [ ] `scale`.
+  - [ ] `setsar`.
+  - [ ] `transpose`.
+  - [ ] `hflip`.
+  - [ ] `vflip`.
+  - [ ] `rotate`.
+  - [ ] `perspective`.
+  - [ ] `lenscorrection`.
+  - [ ] `fade`.
+  - [ ] `xfade`.
+- [*] Buat filter chain builder:
+  - [*] urutan transform.
+  - [*] urutan color.
+  - [*] urutan effects.
+  - [ ] urutan overlay/text/subtitle.
+  - [*] escaping text path Windows aman.
+- [*] Tambahkan preset filter:
+  - [*] Normal.
+  - [*] Cinematic.
+  - [*] Warm.
+  - [*] Cool.
+  - [*] Vintage.
+  - [*] B&W.
+  - [*] Vlog.
+  - [*] Product.
+  - [*] Night.
+  - [*] Skin soft.
+- [*] Tambahkan tombol:
+  - [*] Apply preset.
+  - [*] Reset section.
+  - [ ] Copy filter.
+  - [ ] Paste filter.
+  - [ ] Save preset.
+
+## Phase 7 - Audio Filter UI Lengkap
+
+- [*] Implementasikan audio filter utama:
+  - [*] `volume`.
+  - [*] `gain`.
+  - [*] `loudnorm`.
+  - [ ] `dynaudnorm`.
+  - [*] `acompressor`.
+  - [*] `alimiter`.
+  - [ ] `agate`.
+  - [*] `equalizer`.
+  - [ ] `firequalizer` jika tersedia.
+  - [ ] `bass`.
+  - [ ] `treble`.
+  - [ ] `highpass`.
+  - [ ] `lowpass`.
+  - [ ] `afftdn`.
+  - [ ] `anlmdn` jika tersedia.
+  - [ ] `arnndn` jika model tersedia.
+  - [ ] `areverse`.
+  - [*] `atempo`.
+  - [ ] `asetrate`.
+  - [ ] `rubberband` jika tersedia.
+  - [*] `aecho`.
+  - [ ] `aemphasis`.
+  - [ ] `aphaser`.
+  - [ ] `chorus`.
+  - [ ] `flanger`.
+  - [ ] `tremolo`.
+  - [ ] `vibrato`.
+  - [*] `afade`.
+  - [ ] `adelay`.
+  - [ ] `atrim`.
+  - [ ] `acrossfade`.
+  - [ ] `amerge`.
+  - [ ] `amix`.
+  - [ ] `pan`.
+  - [ ] `channelsplit`.
+  - [ ] `aresample`.
+  - [ ] `silencedetect`.
+  - [ ] `silenceremove`.
+- [*] Tambahkan tab `Audio FX` hanya jika item audio terseleksi.
+- [ ] Tambahkan waveform before/after untuk proses destructive-export seperti denoise.
+- [ ] Tambahkan meter:
+  - [ ] peak.
+  - [ ] RMS.
+  - [ ] LUFS target.
+- [ ] Tambahkan command buttons audio:
+  - [ ] Normalize LUFS.
+  - [ ] Remove Silence.
+  - [ ] Denoise.
+  - [ ] Extract Vocals placeholder jika library belum ada.
+  - [ ] Convert to WAV.
+  - [ ] Convert to MP3.
+  - [ ] Convert to AAC.
+  - [ ] Render audio only.
+
+## Phase 8 - Convert, Codec, Format, dan Compression
+
+- [*] Buat `ConvertModal.jsx`.
+- [*] Format output:
+  - [*] MP4.
+  - [*] MOV.
+  - [*] MKV.
+  - [*] WebM.
+  - [*] AVI.
+  - [*] GIF.
+  - [*] MP3.
+  - [*] WAV.
+  - [*] AAC.
+  - [*] FLAC.
+  - [*] OGG.
+  - [*] M4A.
+  - [*] PNG sequence.
+  - [*] JPG sequence.
+- [*] Video encoder:
+  - [*] H.264 `libx264`.
+  - [*] H.265 `libx265`.
+  - [*] VP9 `libvpx-vp9`.
+  - [ ] AV1 jika tersedia.
+  - [ ] ProRes jika tersedia.
+  - [ ] DNxHD/DNxHR jika tersedia.
+  - [*] NVENC jika tersedia.
+  - [*] QSV jika tersedia.
+  - [*] AMF jika tersedia.
+- [*] Audio encoder:
+  - [*] AAC.
+  - [*] MP3.
+  - [*] Opus.
+  - [*] FLAC.
+  - [*] PCM WAV.
+- [*] Compression controls:
+  - [*] CRF.
+  - [*] bitrate.
+  - [*] maxrate.
+  - [*] bufsize.
+  - [*] preset.
+  - [*] profile.
+  - [*] tune.
+  - [*] GOP/keyint.
+  - [*] two-pass encode.
+- [*] Tambahkan tombol command:
+  - [*] Compress.
+  - [*] Convert.
+  - [*] Rewrap without re-encode.
+  - [*] Make proxy.
+  - [*] Optimize for web.
+  - [*] Make GIF.
+  - [*] Extract image sequence.
+
+## Phase 9 - Timeline Render + Export Final
+
+- [*] Buat `src/utils/renderPipeline.js`.
+- [*] Compile timeline tracks menjadi FFmpeg filter graph:
+  - [*] trim tiap clip.
+  - [*] setpts untuk speed.
+  - [*] scale/crop/pad per clip.
+  - [*] apply video filters per clip.
+  - [ ] overlay track berdasarkan z-index.
+  - [ ] text/sticker overlay.
+  - [ ] transition antar clip.
+  - [*] audio trim per clip.
+  - [*] audio filter per clip.
+  - [ ] mix audio tracks.
+  - [ ] normalize final audio optional.
+- [*] Export range:
+  - [*] full timeline.
+  - [*] selected clip.
+  - [*] in/out range.
+  - [*] current frame snapshot.
+- [*] Export presets:
+  - [*] YouTube 1080p.
+  - [*] YouTube 4K.
+  - [*] TikTok/Reels 9:16.
+  - [*] Instagram Square.
+  - [*] WhatsApp compressed.
+  - [*] Lossless master.
+  - [*] Audio only.
+- [*] Export subtitle modes:
+  - [*] burn-in subtitle.
+  - [*] attach soft subtitle.
+  - [*] export SRT.
+  - [ ] export VTT.
+- [*] Tambahkan render queue:
+  - [*] queued.
+  - [*] running.
+  - [*] completed.
+  - [*] failed.
+  - [*] canceled.
+
+## Phase 10 - Subtitle, Text, Watermark, dan Overlay FFmpeg
+
+- [*] Implementasikan subtitle FFmpeg:
+  - [*] burn `.srt`.
+  - [*] burn `.ass`.
+  - [*] attach `.srt`.
+  - [*] export text clips ke SRT/VTT/ASS.
+- [*] Implementasikan text overlay:
+  - [*] `drawtext` untuk render final.
+  - [*] font family.
+  - [*] font size.
+  - [*] color.
+  - [ ] background box.
+  - [*] stroke/shadow.
+  - [*] x/y expression.
+  - [*] time enable expression.
+- [*] Implementasikan watermark:
+  - [*] image watermark.
+  - [*] video watermark.
+  - [*] opacity.
+  - [*] position.
+  - [*] scale.
+- [*] Tambahkan command buttons:
+  - [*] Add Watermark.
+  - [*] Burn Subtitle.
+  - [*] Attach Subtitle.
+  - [*] Export Caption.
+
+## Phase 11 - Import, Capture, dan Analysis
+
+- [*] Tambahkan media analysis:
+  - [*] detect black frames.
+  - [*] detect silence.
+  - [*] detect scene changes.
+  - [*] extract thumbnails.
+  - [*] extract waveform.
+  - [*] extract dominant colors.
+  - [*] detect interlacing.
+- [*] Tambahkan command buttons:
+  - [*] Analyze.
+  - [*] Scene Cut.
+  - [*] Silence Cut.
+  - [*] Generate Thumbnails.
+  - [*] Generate Waveform.
+- [*] Tambahkan capture native jika FFmpeg mendukung device:
+  - [*] screen recording Windows via `gdigrab`.
+  - [*] webcam via `dshow`.
+  - [*] microphone via `dshow`.
+  - [ ] system audio jika device tersedia.
+- [*] Buat `CaptureModal.jsx`:
+  - [*] pilih device.
+  - [*] fps.
+  - [*] resolution.
+  - [*] audio source.
+  - [*] output folder.
+
+## Phase 12 - Advanced FFmpeg Command Browser
+
+- [*] Buat `AdvancedFFmpegPanel.jsx`.
+- [*] Tampilkan semua kemampuan dari build aktif:
+  - [*] filters.
+  - [*] codecs.
+  - [*] encoders.
+  - [*] decoders.
+  - [*] muxers.
+  - [*] demuxers.
+  - [*] protocols.
+  - [*] bitstream filters.
+  - [*] pixel formats.
+  - [*] hardware accelerators.
+- [*] User bisa:
+  - [*] mencari filter/codec.
+  - [*] melihat help per filter dengan `ffmpeg -h filter=<name>`.
+  - [*] melihat help encoder dengan `ffmpeg -h encoder=<name>`.
+  - [*] membuat preset custom.
+  - [*] menyimpan preset ke project.
+  - [*] menerapkan preset ke selected clip.
+  - [*] menjalankan command custom dengan variable aman.
+- [*] Tambahkan variable template:
+  - [*] `{input}`.
+  - [*] `{output}`.
+  - [*] `{start}`.
+  - [*] `{duration}`.
+  - [*] `{width}`.
+  - [*] `{height}`.
+  - [*] `{fps}`.
+- [*] Tambahkan validasi:
+  - [*] user tidak boleh menulis ke path input asli.
+  - [*] output default ke folder cache/render.
+  - [*] command menampilkan dry-run args sebelum dijalankan.
+
+## Phase 13 - State Schema
+
+- [*] Tambahkan ke clip:
+  - [*] `ffmpegFilters.video[]`.
+  - [*] `ffmpegFilters.audio[]`.
+  - [*] `ffmpegCommands[]`.
+  - [*] `renderCacheKey`.
+  - [*] `proxyMediaId`.
+  - [*] `metadataVersion`.
+- [*] Tambahkan ke media:
+  - [*] `metadata.ffprobe`.
+  - [*] `capabilities`.
+  - [*] `proxy`.
+  - [*] `waveform`.
+  - [*] `thumbnails`.
+- [*] Tambahkan ke project:
+  - [*] `ffmpegRuntime`.
+  - [*] `ffmpegCapabilities`.
+  - [*] `exportPresets`.
+  - [*] `customFFmpegPresets`.
+- [*] Buat migration untuk project lama agar clip existing tetap aman.
+
+## Phase 14 - UI Detail Tombol + Icon
+
+- [*] Mapping icon command:
+  - [*] Convert: `RefreshCw`.
+  - [*] Compress: `Archive`.
+  - [*] Extract Audio: `Music`.
+  - [*] Snapshot: `Camera`.
+  - [*] Metadata: `Info`.
+  - [*] Analyze: `ScanSearch`.
+  - [*] Crop: `Crop`.
+  - [*] Rotate: `RotateCw`.
+  - [*] Flip: `FlipHorizontal`.
+  - [*] Brightness: `Sun`.
+  - [*] Contrast: `CircleHalf`.
+  - [*] Color: `Palette`.
+  - [*] Blur: `Droplets`.
+  - [*] Sharpen: `Focus`.
+  - [*] Subtitle: `Captions`.
+  - [*] Watermark: `Badge`.
+  - [*] Normalize: `AudioLines`.
+  - [*] Denoise: `Waves`.
+  - [*] Export: `Download`.
+  - [*] Advanced: `Terminal`.
+- [*] Semua tombol command wajib punya:
+  - [*] icon.
+  - [*] tooltip.
+  - [*] keyboard hint jika ada.
+  - [*] disabled state.
+  - [*] loading spinner/progress.
+- [*] Gunakan segmented tabs untuk right panel.
+- [*] Gunakan sliders untuk numeric filters.
+- [*] Gunakan toggles untuk enabled/disabled.
+- [*] Gunakan select/menu untuk codec, format, preset.
+- [*] Gunakan swatch untuk warna.
+
+## Phase 15 - Cache, Proxy, dan Performance
+
+- [*] Buat folder cache app:
+  - [*] thumbnails.
+  - [*] waveform.
+  - [*] proxies.
+  - [*] preview-frames.
+  - [*] renders.
+- [*] Generate proxy:
+  - [*] 540p H.264 fast.
+  - [*] 720p H.264 fast.
+  - [ ] audio proxy WAV optional.
+- [*] Preview memakai proxy jika source berat.
+- [*] Render final tetap memakai source original.
+- [*] Cache invalidation berdasarkan:
+  - [*] file path.
+  - [*] last modified.
+  - [*] size.
+  - [*] filter hash.
+  - [*] render settings hash.
+- [*] Tambahkan cleanup cache UI.
+
+## Phase 16 - Testing dan QA
+
+- [ ] Unit test command builder:
+  - [ ] Windows path escaping.
+  - [ ] filter chain escaping.
+  - [ ] codec args.
+  - [ ] subtitle path escaping.
+- [ ] Integration test import:
+  - [ ] MP4.
+  - [ ] MOV.
+  - [ ] MKV.
+  - [ ] WebM.
+  - [ ] MP3.
+  - [ ] WAV.
+  - [ ] PNG.
+  - [ ] JPG.
+- [ ] Manual QA preview:
+  - [ ] image muncul di canvas.
+  - [ ] video muncul di canvas.
+  - [ ] scrub video update frame.
+  - [ ] filter brightness terlihat realtime.
+  - [ ] audio tab hanya muncul saat audio selected.
+  - [ ] video mini audio control muncul saat video punya audio stream.
+- [ ] Manual QA render:
+  - [ ] export full timeline.
+  - [ ] export selected clip.
+  - [ ] export audio only.
+  - [ ] burn subtitle.
+  - [ ] watermark.
+  - [ ] compress.
+  - [ ] convert.
+- [ ] Build check:
+  - [*] `npm run build`.
+  - [ ] `npm run desktop`.
+  - [ ] portable `npm run dist:win`.
+
+## Definition of Done
+
+- [ ] `tasks.md` ini selesai semua checklist prioritas P0-P2.
+- [*] FFmpeg native terdeteksi otomatis di PC yang sudah install FFmpeg.
+- [*] FFmpeg wasm tetap bisa jalan sebagai fallback.
+- [ ] Preview gambar dan video ke canvas berjalan mudah dan stabil.
+- [*] Semua command utama punya tombol berikon.
+- [*] Panel kanan menampilkan metadata di atas, lalu kontrol FFmpeg di bawahnya.
+- [ ] Brightness, contrast, saturation, hue, crop, scale, rotate, blur, sharpen, subtitle, watermark, convert, compress, extract audio, thumbnail, waveform, dan export final sudah bekerja.
+- [*] Tab audio filter hanya muncul saat item audio terseleksi.
+- [*] Fitur FFmpeg yang tidak dibuat UI khusus tetap tersedia lewat Advanced FFmpeg Command Browser berbasis capability discovery.
+- [*] Tidak ada render yang menimpa file asli.
+- [*] Project lama tetap bisa dibuka.
