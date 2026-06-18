@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Search, Terminal, X, ChevronRight, Save, Play, Loader2, Trash2, HardDrive } from "lucide-react";
 import { getNativeFFmpegCapabilities } from "../../utils/ffmpegRuntime.js";
 import { clearCache, getCacheSize, formatBytes } from "../../utils/cacheService.js";
+import { HorizontalRail } from "./HorizontalRail.jsx";
 
 const CAPABILITY_TABS = [
   { id: "filters", label: "Filters", flag: "-filters", textKey: "filtersText" },
@@ -117,7 +118,8 @@ export function AdvancedFFmpegPanel({ clip, media, onRunCommand }) {
     <div className="space-y-4">
       {/* Capability Browser */}
       <div className="rounded-md border border-[var(--border)] bg-[#141414] overflow-hidden">
-        <div className="flex overflow-x-auto scrollbar-none border-b border-[var(--border)]">
+        <div className="border-b border-[var(--border)] px-1 py-1">
+          <HorizontalRail contentClassName="flex" buttonClassName="h-6">
           {CAPABILITY_TABS.map((t) => (
             <button
               key={t.id}
@@ -128,6 +130,7 @@ export function AdvancedFFmpegPanel({ clip, media, onRunCommand }) {
               {t.label}
             </button>
           ))}
+          </HorizontalRail>
         </div>
 
         <div className="relative p-2">

@@ -3,11 +3,27 @@ const { spawn } = require("child_process");
 const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
+const { pathToFileURL } = require("url");
 
 const FFMPEG_TIMEOUT_MS = 30_000;
+const PEXELS_API_BASE = "https://api.pexels.com/v1";
+const PIXABAY_API_BASE = "https://pixabay.com/api";
 
 // Map of active transcoding processes: jobId -> child process
 const activeJobs = new Map();
+
+function loadLocalEnv() {
+  const envPath = path.join(__dirname, "..", ".env.local");
+  return fs.readFile(envPath, "utf8")
+    .then((text) => {
+      text.split(/\r?\n/).forEach((line) => {
+        const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+        if (!match || process.env[match[1]]) return;
+        process.env[match[1]] = match[2].replace(/^["']|["']$/g, "");
+      });
+    })
+    .catch(() => {});
+}
 
 function runBinary(command, args = [], options = {}) {
   return new Promise((resolve) => {
@@ -126,7 +142,257 @@ function sanitizeExtension(extension, fallback) {
   return value || fallback;
 }
 
+function sanitizeFilename(name, fallback = "asset") {
+  const clean = String(name || fallback).replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").replace(/\s+/g, " ").trim();
+  return clean || fallback;
+}
+
+function guessExtensionFromUrl(url, fallback) {
+  try {
+    const parsed = new URL(url);
+    const ext = path.extname(parsed.pathname).replace(".", "");
+    return sanitizeExtension(ext, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+async function downloadRemoteAsset(payload = {}) {
+  const url = String(payload.url || "").trim();
+  if (!/^https?:\/\//i.test(url)) return { ok: false, error: "URL asset tidak valid." };
+  const provider = sanitizeFilename(payload.provider || "remote").toLowerCase();
+  const type = payload.type === "video" ? "videos" : "images";
+  const fallbackExt = payload.type === "video" ? "mp4" : "jpg";
+  const ext = guessExtensionFromUrl(url, fallbackExt);
+  const baseName = sanitizeFilename(payload.name || `${provider}-${Date.now()}.${ext}`);
+  const fileName = baseName.toLowerCase().endsWith(`.${ext}`) ? baseName : `${baseName}.${ext}`;
+  const targetDir = path.join(app.getPath("userData"), "cache", "media", provider, type);
+  await fs.mkdir(targetDir, { recursive: true });
+  const targetPath = path.join(targetDir, fileName);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    return { ok: false, error: `Download gagal (${response.status}). ${text}`.trim() };
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(targetPath, buffer);
+  return {
+    ok: true,
+    path: targetPath,
+    url: pathToFileURL(targetPath).href,
+    size: buffer.byteLength,
+    name: fileName
+  };
+}
+
+function normalizePexelsVideo(video) {
+  const mp4Files = Array.isArray(video.video_files)
+    ? video.video_files.filter((file) => file.file_type === "video/mp4" && file.link && file.quality !== "hls")
+    : [];
+  const preferred = pickBestPexelsVideoFile(mp4Files);
+  const previewUrl = video.video_pictures?.[0]?.picture || video.image || "";
+  return {
+    id: String(video.id),
+    type: "video",
+    name: `Pexels Video ${video.id}.mp4`,
+    url: preferred?.link || video.url,
+    downloadUrl: preferred?.link || video.url,
+    previewUrl,
+    previewDownloadUrl: previewUrl,
+    thumbnailUrl: previewUrl,
+    duration: Number(video.duration) || 5,
+    width: preferred?.width || video.width || 0,
+    height: preferred?.height || video.height || 0,
+    size: 0,
+    pexelsUrl: video.url,
+    photographer: video.user?.name || "Pexels",
+    photographerUrl: video.user?.url || "https://www.pexels.com"
+  };
+}
+
+function normalizePexelsPhoto(photo) {
+  const previewUrl = photo.src?.small || photo.src?.tiny || photo.src?.medium || "";
+  const webformatUrl = photo.src?.medium || photo.src?.large || previewUrl;
+  const downloadUrl = photo.src?.original || photo.src?.large2x || photo.src?.large || webformatUrl || photo.url;
+  return {
+    id: String(photo.id),
+    type: "image",
+    name: `Pexels Photo ${photo.id}.jpg`,
+    url: downloadUrl,
+    downloadUrl,
+    previewUrl,
+    webformatUrl,
+    previewDownloadUrl: previewUrl,
+    thumbnailUrl: previewUrl,
+    duration: 3,
+    width: photo.width || 0,
+    height: photo.height || 0,
+    size: 0,
+    alt: photo.alt || "",
+    avgColor: photo.avg_color || null,
+    pexelsUrl: photo.url,
+    photographer: photo.photographer || "Pexels",
+    photographerUrl: photo.photographer_url || "https://www.pexels.com"
+  };
+}
+
+function pickBestPexelsVideoFile(files) {
+  return files
+    .slice()
+    .sort((a, b) => ((b.width || 0) * (b.height || 0)) - ((a.width || 0) * (a.height || 0)))[0];
+}
+
+function pexelsOrientation(orientation) {
+  if (orientation === "horizontal") return "landscape";
+  if (orientation === "vertical") return "portrait";
+  return "";
+}
+
+async function searchPexels(payload = {}) {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) return { ok: false, error: "PEXELS_API_KEY belum diatur di .env.local." };
+
+  const kind = payload.kind === "video" ? "video" : "photo";
+  const query = String(payload.query || "").trim();
+  if (!query) return { ok: false, error: "Kata kunci Pexels masih kosong." };
+
+  const page = Math.max(1, Math.min(Number(payload.page) || 1, 1000));
+  const perPage = Math.max(1, Math.min(Number(payload.perPage) || 12, 40));
+  const endpoint = kind === "video" ? `${PEXELS_API_BASE}/videos/search` : `${PEXELS_API_BASE}/search`;
+  const url = new URL(endpoint);
+  url.searchParams.set("query", query);
+  url.searchParams.set("page", String(page));
+  url.searchParams.set("per_page", String(perPage));
+  const orientation = pexelsOrientation(payload.orientation);
+  if (orientation) url.searchParams.set("orientation", orientation);
+
+  const response = await fetch(url, { headers: { Authorization: apiKey } });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    return { ok: false, error: `Pexels gagal (${response.status}). ${text}`.trim() };
+  }
+  const data = await response.json();
+  const items = kind === "video"
+    ? (data.videos || []).map(normalizePexelsVideo).filter((item) => item.url)
+    : (data.photos || []).map(normalizePexelsPhoto).filter((item) => item.url);
+
+  return {
+    ok: true,
+    kind,
+    page: data.page || page,
+    perPage: data.per_page || perPage,
+    totalResults: data.total_results || 0,
+    hasNext: Boolean(data.next_page),
+    items
+  };
+}
+
+function pixabayUserUrl(item) {
+  if (!item.user || !item.user_id) return "https://pixabay.com";
+  return `https://pixabay.com/users/${encodeURIComponent(item.user)}-${item.user_id}/`;
+}
+
+function normalizePixabayImage(item) {
+  const previewUrl = item.previewURL || item.webformatURL || "";
+  const webformatUrl = item.webformatURL || item.previewURL || "";
+  const downloadUrl = item.imageURL || item.fullHDURL || item.largeImageURL || item.webformatURL || item.previewURL || item.pageURL;
+  return {
+    id: String(item.id),
+    type: "image",
+    name: `Pixabay Image ${item.id}.jpg`,
+    url: downloadUrl,
+    downloadUrl,
+    previewUrl,
+    webformatUrl,
+    previewDownloadUrl: previewUrl,
+    thumbnailUrl: previewUrl,
+    duration: 3,
+    width: item.imageWidth || item.webformatWidth || 0,
+    height: item.imageHeight || item.webformatHeight || 0,
+    size: item.imageSize || 0,
+    alt: item.tags || "",
+    pixabayUrl: item.pageURL,
+    creator: item.user || "Pixabay",
+    creatorUrl: pixabayUserUrl(item)
+  };
+}
+
+function normalizePixabayVideo(item) {
+  const versions = item.videos || {};
+  const preview = pickPixabayVideoVersion(versions, ["medium", "small", "large", "tiny"], "thumbnail");
+  const preferred = pickPixabayVideoVersion(versions, ["large", "medium", "small", "tiny"], "url");
+  return {
+    id: String(item.id),
+    type: "video",
+    name: `Pixabay Video ${item.id}.mp4`,
+    url: preferred?.url || item.pageURL,
+    downloadUrl: preferred?.url || item.pageURL,
+    previewUrl: preview?.thumbnail || preferred?.thumbnail || "",
+    previewDownloadUrl: preview?.thumbnail || preferred?.thumbnail || "",
+    thumbnailUrl: preview?.thumbnail || preferred?.thumbnail || "",
+    duration: Number(item.duration) || 5,
+    width: preferred?.width || 0,
+    height: preferred?.height || 0,
+    size: preferred?.size || 0,
+    alt: item.tags || "",
+    pixabayUrl: item.pageURL,
+    creator: item.user || "Pixabay",
+    creatorUrl: pixabayUserUrl(item)
+  };
+}
+
+function pickPixabayVideoVersion(versions, order, field) {
+  return order.map((key) => versions[key]).find((version) => version?.[field]);
+}
+
+async function searchPixabay(payload = {}) {
+  const apiKey = process.env.PIXABAY_API_KEY;
+  if (!apiKey) return { ok: false, error: "PIXABAY_API_KEY belum diatur di .env.local." };
+
+  const kind = payload.kind === "video" ? "video" : "photo";
+  const query = String(payload.query || "").trim();
+  const page = Math.max(1, Math.min(Number(payload.page) || 1, 1000));
+  const perPage = Math.max(3, Math.min(Number(payload.perPage) || 12, 200));
+  const endpoint = kind === "video" ? `${PIXABAY_API_BASE}/videos/` : `${PIXABAY_API_BASE}/`;
+  const url = new URL(endpoint);
+  url.searchParams.set("key", apiKey);
+  if (query) url.searchParams.set("q", query);
+  url.searchParams.set("page", String(page));
+  url.searchParams.set("per_page", String(perPage));
+  url.searchParams.set("safesearch", payload.safeSearch === false ? "false" : "true");
+  url.searchParams.set("order", payload.order === "latest" ? "latest" : "popular");
+  if (payload.category && payload.category !== "all") url.searchParams.set("category", payload.category);
+  if (payload.orientation && payload.orientation !== "all" && kind !== "video") url.searchParams.set("orientation", payload.orientation);
+  if (kind === "photo") url.searchParams.set("image_type", "all");
+  if (kind === "video") url.searchParams.set("video_type", "all");
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    return { ok: false, error: `Pixabay gagal (${response.status}). ${text}`.trim() };
+  }
+  const data = await response.json();
+  const items = kind === "video"
+    ? (data.hits || []).map(normalizePixabayVideo).filter((item) => item.url)
+    : (data.hits || []).map(normalizePixabayImage).filter((item) => item.url);
+
+  return {
+    ok: true,
+    kind,
+    page,
+    perPage,
+    totalResults: data.totalHits || data.total || 0,
+    hasNext: page * perPage < (data.totalHits || 0),
+    items
+  };
+}
+
 ipcMain.handle("ffmpeg:get-capabilities", async () => getFFmpegCapabilities());
+
+ipcMain.handle("pexels:search", async (_event, payload) => searchPexels(payload));
+ipcMain.handle("pixabay:search", async (_event, payload) => searchPixabay(payload));
+ipcMain.handle("asset:download", async (_event, payload) => downloadRemoteAsset(payload));
 
 ipcMain.handle("ffmpeg:get-filter-help", async (_event, filterName) => {
   if (!filterName || typeof filterName !== "string" || !/^[a-z0-9_]+$/i.test(filterName)) {
@@ -360,7 +626,8 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadLocalEnv();
   createWindow();
 
   app.on("activate", () => {

@@ -3,6 +3,7 @@ import { ImagePlus, X } from "lucide-react";
 import { useMediaStore } from "../../store/mediaStore.js";
 import { useUiStore } from "../../store/uiStore.js";
 import { generateAiImage } from "../../utils/aiImageGenerator.js";
+import { ModernSelect } from "../ui/ModernSelect.jsx";
 
 export function AiImageModal() {
   const open = useUiStore((state) => state.aiImageOpen);
@@ -101,16 +102,5 @@ export function AiImageModal() {
 }
 
 function Select({ label, value, options, onChange }) {
-  return (
-    <label className="grid grid-cols-[120px_1fr] items-center gap-3">
-      <span className="text-[var(--text-secondary)]">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="h-9 rounded-md border border-[var(--border)] bg-[#151515] px-3 text-white">
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  return <ModernSelect label={label} value={value} options={options} onChange={onChange} />;
 }

@@ -26,6 +26,10 @@ export const useUiStore = create((set) => ({
   shortcutHelpOpen: false,
   stabilizeOpen: false,
   cropMode: false,
+  previewSafeArea: false,
+  previewAlphaGrid: false,
+  previewCompare: false,
+  previewAspect: "16:9",
   setLeftTab: (leftTab) => set({ leftTab }),
   setSelectedClip: (selectedClip) => set({ selectedClip }),
   setTimelineZoom: (timelineZoom) => set((state) => {
@@ -58,6 +62,10 @@ export const useUiStore = create((set) => ({
   closeStabilize: () => set({ stabilizeOpen: false }),
   toggleCropMode: () => set((state) => ({ cropMode: !state.cropMode })),
   setCropMode: (cropMode) => set({ cropMode }),
+  togglePreviewSafeArea: () => set((state) => ({ previewSafeArea: !state.previewSafeArea })),
+  togglePreviewAlphaGrid: () => set((state) => ({ previewAlphaGrid: !state.previewAlphaGrid })),
+  togglePreviewCompare: () => set((state) => ({ previewCompare: !state.previewCompare })),
+  setPreviewAspect: (previewAspect) => set({ previewAspect }),
   zoomIn: () => set((state) => {
     const timelineZoom = Math.min(3, state.timelineZoom + 0.1);
     emitEvent("timeline:zoom-changed", { zoom: timelineZoom });

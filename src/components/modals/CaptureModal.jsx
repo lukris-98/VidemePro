@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, Video, Mic, Monitor, Loader2 } from "lucide-react";
 import { getNativeFFmpegCapabilities } from "../../utils/ffmpegRuntime.js";
+import { ModernSelect } from "../ui/ModernSelect.jsx";
 
 const RESOLUTIONS = [
   { label: "1920x1080 (FHD)", value: "1920x1080" },
@@ -98,27 +99,26 @@ export function CaptureModal({ onClose, onCapture }) {
 
           <div className="grid grid-cols-[100px_1fr] items-center gap-3">
             <span className="text-[var(--text-muted)]">Resolusi</span>
-            <select value={resolution} onChange={(e) => setResolution(e.target.value)} className="h-8 rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-              {RESOLUTIONS.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
+            <ModernSelect value={resolution} onChange={setResolution} options={RESOLUTIONS} buttonClassName="h-8" />
           </div>
 
           <div className="grid grid-cols-[100px_1fr] items-center gap-3">
             <span className="text-[var(--text-muted)]">FPS</span>
-            <select value={fps} onChange={(e) => setFps(e.target.value)} className="h-8 rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-              {FPS_OPTIONS.map((f) => <option key={f} value={f}>{f} fps</option>)}
-            </select>
+            <ModernSelect value={fps} onChange={setFps} options={FPS_OPTIONS.map((f) => ({ value: f, label: `${f} fps` }))} buttonClassName="h-8" />
           </div>
 
           <div className="grid grid-cols-[100px_1fr] items-center gap-3">
             <span className="text-[var(--text-muted)]">Audio</span>
-            <select value={audioSource} onChange={(e) => setAudioSource(e.target.value)} className="h-8 rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-              <option value="none">Tanpa audio</option>
-              <option value="mic">Mikrofon (dshow)</option>
-              <option value="system">System audio (jika tersedia)</option>
-            </select>
+            <ModernSelect
+              value={audioSource}
+              onChange={setAudioSource}
+              options={[
+                { value: "none", label: "Tanpa audio" },
+                { value: "mic", label: "Mikrofon (dshow)" },
+                { value: "system", label: "System audio (jika tersedia)" }
+              ]}
+              buttonClassName="h-8"
+            />
           </div>
 
           <div className="grid grid-cols-[100px_1fr] items-center gap-3">

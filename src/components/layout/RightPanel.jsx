@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Archive, AudioLines, Camera, Download, Layers, Music, Plus, RefreshCw, ScanSearch, SlidersHorizontal } from "lucide-react";
+import { Archive, AudioLines, Camera, Download, Grid, Layers, Music, Plus, RefreshCw, ScanLine, ScanSearch, SlidersHorizontal } from "lucide-react";
 import { makeProxy } from "../../utils/cacheService.js";
 import { useMediaStore } from "../../store/mediaStore.js";
 import { usePlaybackStore } from "../../store/playbackStore.js";
@@ -13,6 +13,8 @@ import { defaultEffects, defaultFilters, defaultTransform, filterPresets, mergeP
 import { MediaMetadataTabs } from "../ui/MediaMetadataTabs.jsx";
 import { CommandPalettePanel } from "../ui/CommandPalettePanel.jsx";
 import { AdvancedFFmpegPanel } from "../ui/AdvancedFFmpegPanel.jsx";
+import { ModernSelect } from "../ui/ModernSelect.jsx";
+import { HorizontalRail } from "../ui/HorizontalRail.jsx";
 
 const speedOptions = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const transitions = ["none", "crossDissolve", "fadeToBlack", "slideLeft", "wipeLeft"];
@@ -66,8 +68,11 @@ export function RightPanel() {
         </button>
       </div>
 
+      <PreviewToolStrip />
+
       {clip && tabs.length > 1 && (
-        <div className="flex gap-0.5 overflow-x-auto border-b border-[var(--border)] px-2 py-1.5 scrollbar-none">
+        <div className="border-b border-[var(--border)] px-2 py-1.5">
+          <HorizontalRail contentClassName="flex gap-0.5" buttonClassName="h-6">
           {tabs.map((tab) => (
             <button
               key={tab}
@@ -78,6 +83,7 @@ export function RightPanel() {
               {tab}
             </button>
           ))}
+          </HorizontalRail>
         </div>
       )}
 
@@ -107,6 +113,58 @@ export function RightPanel() {
         )}
       </div>
     </aside>
+  );
+}
+
+function PreviewToolStrip() {
+  const safeArea = useUiStore((state) => state.previewSafeArea);
+  const alphaGrid = useUiStore((state) => state.previewAlphaGrid);
+  const compare = useUiStore((state) => state.previewCompare);
+  const toggleSafeArea = useUiStore((state) => state.togglePreviewSafeArea);
+  const toggleAlphaGrid = useUiStore((state) => state.togglePreviewAlphaGrid);
+  const toggleCompare = useUiStore((state) => state.togglePreviewCompare);
+
+  const snapshot = () => {
+    const canvas = document.querySelector('[data-preview-canvas="true"]');
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `snapshot_${Date.now()}.jpg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, "image/jpeg", 0.95);
+  };
+
+  return (
+    <div className="border-b border-[var(--border)] px-3 py-2">
+      <div className="grid grid-cols-4 gap-1 rounded-md border border-[var(--border)] bg-[#101010] p-1">
+        <PreviewToolButton icon={Camera} label="Snapshot" title="Snapshot frame" onClick={snapshot} />
+        <PreviewToolButton icon={ScanLine} label="Safe" title="Toggle safe area" active={safeArea} onClick={toggleSafeArea} />
+        <PreviewToolButton icon={Grid} label="Alpha" title="Toggle alpha/checkerboard" active={alphaGrid} onClick={toggleAlphaGrid} />
+        <PreviewToolButton icon={Layers} label="Compare" title="Toggle compare guide" active={compare} onClick={toggleCompare} />
+      </div>
+    </div>
+  );
+}
+
+function PreviewToolButton({ icon: Icon, label, title, active = false, onClick }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className={`flex h-8 min-w-0 items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium transition active:translate-y-px ${
+        active
+          ? "bg-[#152235] text-[var(--accent)]"
+          : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-white"
+      }`}
+    >
+      <Icon size={13} className="shrink-0" />
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
   );
 }
 
@@ -210,18 +268,18 @@ function VisualAdjustments({ clip, updateClip }) {
       <Range label={`Vignette ${filters.vignette}%`} min="0" max="100" step="1" value={filters.vignette} onChange={(v) => set({ vignette: v })} />
       <label className="grid grid-cols-[80px_1fr] items-center gap-3 text-xs">
         <span className="text-[var(--text-muted)]">LUT</span>
-        <select
+        <ModernSelect
           value={filters.lut ?? ""}
-          onChange={(e) => set({ lut: e.target.value || null })}
-          className="h-9 rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white"
-        >
-          <option value="">Tidak ada</option>
-          <option value="cinematic">Cinematic</option>
-          <option value="warm">Warm</option>
-          <option value="cool">Cool</option>
-          <option value="vintage">Vintage</option>
-          <option value="bw">B&W</option>
-        </select>
+          onChange={(value) => set({ lut: value || null })}
+          options={[
+            { value: "", label: "Tidak ada" },
+            { value: "cinematic", label: "Cinematic" },
+            { value: "warm", label: "Warm" },
+            { value: "cool", label: "Cool" },
+            { value: "vintage", label: "Vintage" },
+            { value: "bw", label: "B&W" }
+          ]}
+        />
       </label>
       <button type="button" onClick={() => updateClip(clip.id, { filters: structuredClone(defaultFilters), effects: { blur: 0 } })} className="h-8 w-full rounded-md border border-[var(--border)] text-xs hover:bg-[var(--bg-hover)]">
         Reset Semua
@@ -728,18 +786,7 @@ function Range({ label, value, min, max, step, onChange }) {
 }
 
 function Select({ label, value, options, onChange }) {
-  return (
-    <label className="grid grid-cols-[80px_1fr] items-center gap-3 text-xs">
-      <span className="text-[var(--text-muted)]">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="h-9 rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  return <ModernSelect label={label} value={value} options={options} onChange={onChange} layout="row-80" labelClassName="text-[var(--text-muted)]" />;
 }
 
 function formatMiniTime(seconds) {

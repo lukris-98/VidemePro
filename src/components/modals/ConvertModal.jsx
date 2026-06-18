@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { RefreshCw, X, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { getNativeFFmpegCapabilities, chooseBestH264Encoder, hasEncoder, cancelNativeJob, calcProgressPercent } from "../../utils/ffmpegRuntime.js";
 import { transcodeBlobNative } from "../../utils/ffmpegRuntime.js";
+import { ModernSelect } from "../ui/ModernSelect.jsx";
 
 const OUTPUT_FORMATS = [
   { value: "mp4", label: "MP4 (H.264)", ext: "mp4", type: "video" },
@@ -161,37 +162,35 @@ export function ConvertModal({ media, onClose }) {
           </div>
 
           <FormRow label="Output Format">
-            <select value={format} onChange={(e) => setFormat(e.target.value)} className="h-8 w-full rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-              <optgroup label="Video">
-                {OUTPUT_FORMATS.filter((f) => f.type === "video").map((f) => (
-                  <option key={f.value} value={f.value}>{f.label}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Audio">
-                {OUTPUT_FORMATS.filter((f) => f.type === "audio").map((f) => (
-                  <option key={f.value} value={f.value}>{f.label}</option>
-                ))}
-              </optgroup>
-            </select>
+            <ModernSelect
+              value={format}
+              onChange={setFormat}
+              options={[
+                { group: true, label: "Video" },
+                ...OUTPUT_FORMATS.filter((f) => f.type === "video").map((f) => ({ value: f.value, label: f.label })),
+                { group: true, label: "Audio" },
+                ...OUTPUT_FORMATS.filter((f) => f.type === "audio").map((f) => ({ value: f.value, label: f.label }))
+              ]}
+              buttonClassName="h-8"
+            />
           </FormRow>
 
           {isVideoFmt && format !== "gif" && (
             <>
               <FormRow label="Video Encoder">
-                <select value={encoder} onChange={(e) => setEncoder(e.target.value)} className="h-8 w-full rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-                  {["libx264", "libx265", "libvpx-vp9", "h264_nvenc", "h264_qsv", "h264_amf"].map((enc) => (
-                    <option key={enc} value={enc} disabled={enc !== "libx264" && enc !== "libx265" && enc !== "libvpx-vp9" && !hasEncoder(caps, enc)}>
-                      {enc}{!hasEncoder(caps, enc) && enc !== "libx264" ? " (tidak tersedia)" : ""}
-                    </option>
-                  ))}
-                </select>
+                <ModernSelect
+                  value={encoder}
+                  onChange={setEncoder}
+                  options={["libx264", "libx265", "libvpx-vp9", "h264_nvenc", "h264_qsv", "h264_amf"].map((enc) => ({
+                    value: enc,
+                    label: `${enc}${!hasEncoder(caps, enc) && enc !== "libx264" ? " (tidak tersedia)" : ""}`,
+                    disabled: enc !== "libx264" && enc !== "libx265" && enc !== "libvpx-vp9" && !hasEncoder(caps, enc)
+                  }))}
+                  buttonClassName="h-8"
+                />
               </FormRow>
               <FormRow label="Audio Encoder">
-                <select value={audioEncoder} onChange={(e) => setAudioEncoder(e.target.value)} className="h-8 w-full rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-                  {["aac", "libmp3lame", "libopus", "flac", "pcm_s16le"].map((enc) => (
-                    <option key={enc} value={enc}>{enc}</option>
-                  ))}
-                </select>
+                <ModernSelect value={audioEncoder} onChange={setAudioEncoder} options={["aac", "libmp3lame", "libopus", "flac", "pcm_s16le"]} buttonClassName="h-8" />
               </FormRow>
               <FormRow label={`CRF: ${crf}`}>
                 <input type="range" min="0" max="51" step="1" value={crf} onChange={(e) => setCrf(Number(e.target.value))} className="w-full accent-[var(--accent)]" />
@@ -200,19 +199,13 @@ export function ConvertModal({ media, onClose }) {
                 <input type="text" value={bitrate} onChange={(e) => setBitrate(e.target.value)} placeholder="misal: 4M, 2000k (kosong = pakai CRF)" className="h-8 w-full rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white placeholder:text-[var(--text-muted)] outline-none" />
               </FormRow>
               <FormRow label="Preset">
-                <select value={preset} onChange={(e) => setPreset(e.target.value)} className="h-8 w-full rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-                  {PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <ModernSelect value={preset} onChange={setPreset} options={PRESETS} buttonClassName="h-8" />
               </FormRow>
               <FormRow label="Profile">
-                <select value={profile} onChange={(e) => setProfile(e.target.value)} className="h-8 w-full rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-                  {PROFILES.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <ModernSelect value={profile} onChange={setProfile} options={PROFILES} buttonClassName="h-8" />
               </FormRow>
               <FormRow label="Tune">
-                <select value={tune} onChange={(e) => setTune(e.target.value)} className="h-8 w-full rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white">
-                  {TUNES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
+                <ModernSelect value={tune} onChange={setTune} options={TUNES} buttonClassName="h-8" />
               </FormRow>
               <FormRow label="Maxrate (opsional)">
                 <input type="text" value={maxrate} onChange={(e) => setMaxrate(e.target.value)} placeholder="misal: 6M, 4000k" className="h-8 w-full rounded-md border border-[var(--border)] bg-[#151515] px-2 text-white placeholder:text-[var(--text-muted)] outline-none" />

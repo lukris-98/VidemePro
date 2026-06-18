@@ -24,5 +24,14 @@ contextBridge.exposeInMainWorld("videmeNative", {
   },
   proxy: {
     make: (payload) => ipcRenderer.invoke("ffmpeg:make-proxy", payload)
+  },
+  asset: {
+    download: (payload) => ipcRenderer.invoke("asset:download", payload)
+  },
+  pexels: {
+    search: (payload) => ipcRenderer.invoke("pexels:search", payload)
+  },
+  pixabay: {
+    search: (payload) => ipcRenderer.invoke("pixabay:search", payload)
   }
 });

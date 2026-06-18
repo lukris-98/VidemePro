@@ -12,6 +12,7 @@ export const useMediaStore = create((set) => ({
   items: [],
   selectedItems: [],
   previewMediaId: null,
+  transientPreviewMedia: null,
   importStatus: "idle",
   importMessage: "",
   addMediaItems: (items) =>
@@ -68,6 +69,7 @@ export const useMediaStore = create((set) => ({
         : [...state.selectedItems, id]
     })),
   setPreviewMedia: (previewMediaId) => set({ previewMediaId }),
+  setTransientPreviewMedia: (transientPreviewMedia) => set({ transientPreviewMedia }),
   markAdded: (id) =>
     set((state) => ({
       items: state.items.map((item) => (item.id === id ? { ...item, addedToTimeline: true } : item))

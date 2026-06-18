@@ -10,8 +10,8 @@ import { defaultTransform } from "../../utils/visualEffects.js";
 import { segmentFrame } from "../../utils/backgroundRemover.js";
 import { boxesToReframe, detectFaces } from "../../utils/faceDetector.js";
 import { formatTimecode } from "../../utils/timeFormat.js";
-import { Camera, Layers, Grid, ScanLine } from "lucide-react";
 import { makeProxy } from "../../utils/cacheService.js";
+import { ModernSelect } from "../ui/ModernSelect.jsx";
 
 export function PreviewPlayer() {
   const canvasRef = useRef(null);
@@ -26,9 +26,7 @@ export function PreviewPlayer() {
   const [previewVideoTime, setPreviewVideoTime] = useState(0);
   const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
   const [previewVideoPlaying, setPreviewVideoPlaying] = useState(false);
-  const [previewSize, setPreviewSize] = useState({ width: 512, height: 288 });
-  const [showSafeArea, setShowSafeArea] = useState(false);
-  const [showAlphaGrid, setShowAlphaGrid] = useState(false);
+  const [previewSize, setPreviewSize] = useState({ width: 640, height: 360 });
   const { currentTime, isPlaying } = usePlayback();
   const duration = usePlaybackStore((state) => state.duration);
   const fps = usePlaybackStore((state) => state.fps);
@@ -41,8 +39,14 @@ export function PreviewPlayer() {
   const updateClipLive = useProjectStore((state) => state.updateClipLive);
   const mediaItems = useMediaStore((state) => state.items);
   const cropMode = useUiStore((state) => state.cropMode);
+  const showSafeArea = useUiStore((state) => state.previewSafeArea);
+  const showAlphaGrid = useUiStore((state) => state.previewAlphaGrid);
+  const showCompare = useUiStore((state) => state.previewCompare);
+  const previewAspect = useUiStore((state) => state.previewAspect);
+  const setPreviewAspect = useUiStore((state) => state.setPreviewAspect);
   const previewMediaId = useMediaStore((state) => state.previewMediaId);
   const previewMedia = useMediaStore((state) => {
+    if (state.transientPreviewMedia) return state.transientPreviewMedia;
     return state.items.find((item) => item.id === state.previewMediaId) ?? null;
   });
 
@@ -68,17 +72,17 @@ export function PreviewPlayer() {
     if (!element) return undefined;
     const updateSize = () => {
       const rect = element.getBoundingClientRect();
-      const width = Math.max(1, rect.width);
-      const height = Math.max(1, rect.height);
-      const maxCanvasScale = 0.72;
-      const frameWidth = Math.min(width, height * (16 / 9)) * maxCanvasScale;
-      setPreviewSize({ width: frameWidth, height: frameWidth * (9 / 16) });
+      const width = Math.max(1, rect.width - 8);
+      const height = Math.max(1, rect.height - 38);
+      const ratio = aspectValue(previewAspect);
+      const frameWidth = Math.min(width, height * ratio);
+      setPreviewSize({ width: frameWidth, height: frameWidth / ratio });
     };
     updateSize();
     const observer = new ResizeObserver(updateSize);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [previewAspect]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -408,16 +412,17 @@ export function PreviewPlayer() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div ref={previewAreaRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-[3px] py-3">
-        <div className="flex h-full min-h-0 w-full min-w-0 items-center justify-center">
+      <div ref={previewAreaRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-1">
+        <div className="flex h-full min-h-0 w-full min-w-0 flex-col items-center justify-center gap-1">
           <div
             className="relative overflow-hidden rounded-md border border-[var(--border)] bg-black"
             style={{ width: previewSize.width, height: previewSize.height }}
           >
             <canvas
               ref={canvasRef}
-              width="1280"
-              height="720"
+              width={canvasDimensions(previewAspect).width}
+              height={canvasDimensions(previewAspect).height}
+              data-preview-canvas="true"
               className="h-full w-full cursor-crosshair"
               onMouseDown={handleCanvasPointer}
             />
@@ -429,6 +434,13 @@ export function PreviewPlayer() {
             )}
             {showAlphaGrid && (
               <div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: "repeating-conic-gradient(#888 0% 25%,transparent 0% 50%)", backgroundSize: "16px 16px", mixBlendMode: "difference" }} />
+            )}
+            {showCompare && (
+              <div className="pointer-events-none absolute inset-0">
+                <div className="absolute inset-y-0 left-1/2 border-l border-white/70 shadow-[0_0_0_1px_rgba(0,0,0,0.45)]" />
+                <div className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">A</div>
+                <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">B</div>
+              </div>
             )}
             {cropMode && selectedClip ? (
               <div className="absolute inset-0">
@@ -482,31 +494,16 @@ export function PreviewPlayer() {
               />
             ) : null}
           </div>
+          <div className="w-[min(260px,100%)]">
+            <ModernSelect
+              value={previewAspect}
+              onChange={setPreviewAspect}
+              options={previewAspectOptions}
+              buttonClassName="h-8"
+              menuClassName="bottom-[calc(100%+4px)] top-auto"
+            />
+          </div>
         </div>
-      </div>
-      <div className="flex items-center gap-1 border-t border-[var(--border)] bg-[var(--bg-panel-soft)] px-3 py-1">
-        <button type="button" onClick={handleSnapshot} title="Snapshot frame" className="flex h-7 items-center gap-1.5 rounded px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-white transition">
-          <Camera size={12} /> Snapshot
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowSafeArea((v) => !v)}
-          title="Toggle safe area"
-          className={`flex h-7 items-center gap-1.5 rounded px-2 text-[11px] transition ${showSafeArea ? "text-[var(--accent)] bg-[var(--accent)]/10" : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-white"}`}
-        >
-          <ScanLine size={12} /> Safe
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowAlphaGrid((v) => !v)}
-          title="Toggle alpha/checkerboard"
-          className={`flex h-7 items-center gap-1.5 rounded px-2 text-[11px] transition ${showAlphaGrid ? "text-[var(--accent)] bg-[var(--accent)]/10" : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-white"}`}
-        >
-          <Grid size={12} /> Alpha
-        </button>
-        <button type="button" title="Layers / compare" className="flex h-7 items-center gap-1.5 rounded px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-white transition">
-          <Layers size={12} /> Compare
-        </button>
       </div>
 
       {previewMedia?.type === "video" ? (
@@ -559,6 +556,33 @@ export function PreviewPlayer() {
       />
     </div>
   );
+}
+
+const previewAspectOptions = [
+  { value: "16:9", label: "YouTube 16:9" },
+  { value: "9:16", label: "Shorts/Reels/TikTok 9:16" },
+  { value: "1:1", label: "Instagram Square 1:1" },
+  { value: "4:5", label: "Instagram Feed 4:5" },
+  { value: "1.91:1", label: "Facebook/X 1.91:1" },
+  { value: "21:9", label: "Cinema 21:9" }
+];
+
+function aspectValue(aspect) {
+  if (aspect === "9:16") return 9 / 16;
+  if (aspect === "1:1") return 1;
+  if (aspect === "4:5") return 4 / 5;
+  if (aspect === "1.91:1") return 1.91;
+  if (aspect === "21:9") return 21 / 9;
+  return 16 / 9;
+}
+
+function canvasDimensions(aspect) {
+  if (aspect === "9:16") return { width: 1080, height: 1920 };
+  if (aspect === "1:1") return { width: 1080, height: 1080 };
+  if (aspect === "4:5") return { width: 1080, height: 1350 };
+  if (aspect === "1.91:1") return { width: 1200, height: 628 };
+  if (aspect === "21:9") return { width: 2560, height: 1080 };
+  return { width: 1920, height: 1080 };
 }
 
 function getActiveVideo(tracks, mediaItems, time, previewMedia) {
