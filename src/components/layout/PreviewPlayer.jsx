@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { PlaybackControls } from "../controls/PlaybackControls.jsx";
+import { Expand, Pause, Play } from "lucide-react";
 import { usePlayback } from "../../hooks/usePlayback.js";
 import { useMediaStore } from "../../store/mediaStore.js";
 import { usePlaybackStore } from "../../store/playbackStore.js";
@@ -10,7 +10,6 @@ import { defaultTransform } from "../../utils/visualEffects.js";
 import { segmentFrame } from "../../utils/backgroundRemover.js";
 import { boxesToReframe, detectFaces } from "../../utils/faceDetector.js";
 import { formatTimecode } from "../../utils/timeFormat.js";
-import { makeProxy } from "../../utils/cacheService.js";
 import { ModernSelect } from "../ui/ModernSelect.jsx";
 
 export function PreviewPlayer() {
@@ -32,6 +31,7 @@ export function PreviewPlayer() {
   const fps = usePlaybackStore((state) => state.fps);
   const setCurrentTime = usePlaybackStore((state) => state.setCurrentTime);
   const pausePlayback = usePlaybackStore((state) => state.pause);
+  const togglePlay = usePlaybackStore((state) => state.togglePlay);
   const tracks = useProjectStore((state) => state.tracks);
   const selectedClipId = useProjectStore((state) => state.selectedClipId);
   const selectClip = useProjectStore((state) => state.selectClip);
@@ -372,6 +372,24 @@ export function PreviewPlayer() {
     }, "image/jpeg", 0.95);
   };
 
+  const toggleFullscreen = async () => {
+    const element = previewAreaRef.current;
+    if (!element) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await element.requestFullscreen();
+      }
+    } catch {
+      // Fullscreen can be blocked by the browser or host shell.
+    }
+  };
+
+  const toolbarPlaying = previewMedia?.type === "video" ? previewVideoPlaying : isPlaying;
+  const toolbarPlayTitle = previewMedia?.type === "video" ? (previewVideoPlaying ? "Pause preview" : "Play preview") : isPlaying ? "Pause" : "Play";
+  const handleToolbarPlay = previewMedia?.type === "video" ? togglePreviewVideo : togglePlay;
+
   useEffect(() => {
     const video = videoRef.current;
     const clip = activeVideo?.clip;
@@ -494,66 +512,41 @@ export function PreviewPlayer() {
               />
             ) : null}
           </div>
-          <div className="w-[min(260px,100%)]">
-            <ModernSelect
-              value={previewAspect}
-              onChange={setPreviewAspect}
-              options={previewAspectOptions}
-              buttonClassName="h-8"
-              menuClassName="bottom-[calc(100%+4px)] top-auto"
-            />
-          </div>
         </div>
       </div>
 
-      {previewMedia?.type === "video" ? (
-        <div className="border-t border-[var(--border)] bg-[var(--bg-panel-soft)] px-4 py-2">
-          <div className="flex items-center gap-3">
-            <span className="w-20 font-mono text-xs text-[var(--text-secondary)]">{formatPreviewTime(previewVideoTime)}</span>
-            <input
-              type="range"
-              min="0"
-              max={Math.max(0.01, previewVideoDuration || previewMedia.duration || 0.01)}
-              step="0.01"
-              value={Math.min(previewVideoTime, previewVideoDuration || previewMedia.duration || 0)}
-              onMouseDown={beginPreviewScrub}
-              onTouchStart={beginPreviewScrub}
-              onMouseUp={endPreviewScrub}
-              onTouchEnd={endPreviewScrub}
-              onBlur={endPreviewScrub}
-              onChange={(event) => seekPreviewVideo(event.target.value)}
-              className="min-w-0 flex-1 accent-[var(--accent)]"
-            />
-            <span className="w-20 text-right font-mono text-xs text-[var(--text-secondary)]">
-              {formatPreviewTime(previewVideoDuration || previewMedia.duration)}
-            </span>
-          </div>
+      <div className="flex h-11 items-center gap-3 border-t border-[var(--border)] bg-[var(--bg-panel-soft)] px-4">
+        <span className="w-28 font-mono text-xs text-[var(--text-secondary)]">{formatTimecode(duration, fps)}</span>
+        <span className="w-28 font-mono text-xs text-[var(--text-secondary)]">{formatTimecode(currentTime, fps)}</span>
+        <button
+          type="button"
+          title={toolbarPlayTitle}
+          onClick={handleToolbarPlay}
+          className={`grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--bg-hover)] active:translate-y-px ${
+            toolbarPlaying ? "bg-[var(--bg-hover)] text-white" : "text-[var(--text-secondary)]"
+          }`}
+        >
+          {toolbarPlaying ? <Pause size={18} /> : <Play size={18} />}
+        </button>
+        <div className="w-20">
+          <ModernSelect
+            value={previewAspect}
+            onChange={setPreviewAspect}
+            options={previewAspectOptions}
+            buttonClassName="h-8"
+            menuClassName="bottom-[calc(100%+4px)] top-auto w-56"
+            formatLabel={(label) => String(label).match(/\d+(?:\.\d+)?:\d+/)?.[0] ?? label}
+          />
         </div>
-      ) : (
-        <div className="border-t border-[var(--border)] bg-[var(--bg-panel-soft)] px-4 py-2">
-          <div className="flex items-center gap-3">
-            <span className="w-28 font-mono text-xs text-[var(--text-secondary)]">{formatTimecode(currentTime, fps)}</span>
-            <input
-              type="range"
-              min="0"
-              max={Math.max(0.01, duration || 0.01)}
-              step={1 / fps}
-              value={Math.min(currentTime, duration || 0)}
-              onMouseDown={beginTimelineScrub}
-              onTouchStart={beginTimelineScrub}
-              onChange={(event) => seekTimeline(event.target.value)}
-              className="min-w-0 flex-1 accent-[var(--accent)]"
-              aria-label="Scrub timeline preview"
-            />
-            <span className="w-28 text-right font-mono text-xs text-[var(--text-secondary)]">{formatTimecode(duration, fps)}</span>
-          </div>
-        </div>
-      )}
-      <PlaybackControls
-        previewMode={previewMedia?.type === "video"}
-        previewPlaying={previewVideoPlaying}
-        onPreviewToggle={togglePreviewVideo}
-      />
+        <button
+          type="button"
+          title="Fullscreen"
+          onClick={toggleFullscreen}
+          className="grid h-8 w-8 place-items-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-white active:translate-y-px"
+        >
+          <Expand size={16} />
+        </button>
+      </div>
     </div>
   );
 }

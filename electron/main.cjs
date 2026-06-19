@@ -157,15 +157,21 @@ function guessExtensionFromUrl(url, fallback) {
   }
 }
 
+function guessExtensionFromName(name) {
+  const ext = path.extname(String(name || "")).replace(".", "");
+  return ext ? sanitizeExtension(ext, "") : "";
+}
+
 async function downloadRemoteAsset(payload = {}) {
   const url = String(payload.url || "").trim();
   if (!/^https?:\/\//i.test(url)) return { ok: false, error: "URL asset tidak valid." };
   const provider = sanitizeFilename(payload.provider || "remote").toLowerCase();
   const type = payload.type === "video" ? "videos" : "images";
   const fallbackExt = payload.type === "video" ? "mp4" : "jpg";
-  const ext = guessExtensionFromUrl(url, fallbackExt);
+  const nameExt = guessExtensionFromName(payload.name);
+  const ext = guessExtensionFromUrl(url, nameExt || fallbackExt);
   const baseName = sanitizeFilename(payload.name || `${provider}-${Date.now()}.${ext}`);
-  const fileName = baseName.toLowerCase().endsWith(`.${ext}`) ? baseName : `${baseName}.${ext}`;
+  const fileName = guessExtensionFromName(baseName) ? baseName : `${baseName}.${ext}`;
   const targetDir = path.join(app.getPath("userData"), "cache", "media", provider, type);
   await fs.mkdir(targetDir, { recursive: true });
   const targetPath = path.join(targetDir, fileName);
@@ -296,13 +302,13 @@ function pixabayUserUrl(item) {
 function normalizePixabayImage(item) {
   const previewUrl = item.previewURL || item.webformatURL || "";
   const webformatUrl = item.webformatURL || item.previewURL || "";
-  const downloadUrl = item.imageURL || item.fullHDURL || item.largeImageURL || item.webformatURL || item.previewURL || item.pageURL;
+  const download = pickPixabayImageDownload(item);
   return {
     id: String(item.id),
     type: "image",
-    name: `Pixabay Image ${item.id}.jpg`,
-    url: downloadUrl,
-    downloadUrl,
+    name: `Pixabay ${download.kind} ${item.id}.${download.extension}`,
+    url: download.url,
+    downloadUrl: download.url,
     previewUrl,
     webformatUrl,
     previewDownloadUrl: previewUrl,
@@ -315,6 +321,17 @@ function normalizePixabayImage(item) {
     pixabayUrl: item.pageURL,
     creator: item.user || "Pixabay",
     creatorUrl: pixabayUserUrl(item)
+  };
+}
+
+function pickPixabayImageDownload(item) {
+  if (item.vectorURL) {
+    return { url: item.vectorURL, kind: "Vector", extension: "svg" };
+  }
+  return {
+    url: item.imageURL || item.fullHDURL || item.largeImageURL || item.webformatURL || item.previewURL || item.pageURL,
+    kind: "Image",
+    extension: "jpg"
   };
 }
 

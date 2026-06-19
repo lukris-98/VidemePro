@@ -67,6 +67,21 @@ button {
   border-radius: 999px;
 }
 
+.timeline-scrollbar {
+  scrollbar-color: #3a3a3a transparent;
+  scrollbar-width: thin;
+}
+
+.timeline-scrollbar::-webkit-scrollbar {
+  height: 0;
+  width: 10px;
+}
+
+.timeline-scrollbar::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 999px;
+}
+
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;

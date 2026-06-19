@@ -55,10 +55,10 @@ function renderTimeline(ctx, width, height, time, tracks, mediaItems, videoEleme
 
 function renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imageElement) {
   if (previewMedia?.type === "video" && videoElement?.readyState >= 2) {
-    ctx.drawImage(videoElement, 0, 0, width, height);
+    drawContained(ctx, videoElement, width, height, previewMedia);
   } else if (previewMedia?.type === "image" || previewMedia?.type === "photo") {
     if (imageElement?.dataset?.mediaId === previewMedia.id && imageElement.complete && imageElement.naturalWidth) {
-      drawContained(ctx, imageElement, width, height);
+      drawContained(ctx, imageElement, width, height, previewMedia);
     }
   } else if (previewMedia?.type === "audio") {
     ctx.fillStyle = "#101820";
@@ -223,9 +223,11 @@ function drawTransition(ctx, width, height, pair, mediaItems, videoElement, time
   drawClipFrame(ctx, width, height, pair.next, mediaItems, videoElement, time, progress);
 }
 
-function drawContained(ctx, source, width, height) {
-  const sourceWidth = source.videoWidth || source.naturalWidth || width;
-  const sourceHeight = source.videoHeight || source.naturalHeight || height;
+function drawContained(ctx, source, width, height, media = null) {
+  const mediaWidth = Number(media?.width) || 0;
+  const mediaHeight = Number(media?.height) || 0;
+  const sourceWidth = mediaWidth || source.videoWidth || source.naturalWidth || width;
+  const sourceHeight = mediaHeight || source.videoHeight || source.naturalHeight || height;
   const scale = Math.min(width / sourceWidth, height / sourceHeight);
   const drawWidth = sourceWidth * scale;
   const drawHeight = sourceHeight * scale;

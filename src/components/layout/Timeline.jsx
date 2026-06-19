@@ -426,7 +426,7 @@ export function Timeline() {
     setTimelineMarquee(marqueeRef.current);
   };
 
-  const endTimelinePointer = () => {
+  const endTimelinePointer = (event) => {
     setDraggingPlayhead(false);
     if (!marqueeRef.current) return;
     const rect = marqueeToRect(marqueeRef.current);
@@ -436,6 +436,11 @@ export function Timeline() {
       selectClips(selected);
       setTimelineSelection(selected);
     } else {
+      if (event?.target && scrollRef.current?.contains(event.target)) {
+        setPreviewMedia(null);
+        pausePlayback();
+        seekFromPointer(event, scrollRef.current);
+      }
       deselectAll();
       setTimelineSelection([]);
     }
@@ -548,7 +553,7 @@ export function Timeline() {
       </div>
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: `${trackPanelWidth}px 4px 1fr` }}>
         <div ref={labelScrollRef} className="overflow-hidden bg-[#0f0f0f]">
-          <div className="h-8 border-b border-r border-[var(--border)]" />
+          <div className="sticky top-0 z-20 h-8 border-b border-r border-[var(--border)] bg-[#0f0f0f]" />
           {tracks.map((track) => (
             <TrackLabel
               key={track.id}
@@ -569,7 +574,7 @@ export function Timeline() {
         />
         <div
           ref={scrollRef}
-          className="scrollbar-dark relative overflow-auto"
+          className="timeline-scrollbar relative overflow-auto"
           onMouseDown={beginTimelinePointer}
           onMouseMove={updateTimelinePointer}
           onMouseUp={endTimelinePointer}

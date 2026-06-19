@@ -10,6 +10,7 @@ import {
   Filter,
   Grid2X2,
   Info,
+  Loader2,
   Download,
   Eye,
   Monitor,
@@ -97,6 +98,8 @@ export function MediaImporter({
     const cleanQuery = query.trim();
     const effectiveQuery = cleanQuery || pexelsCategoryQuery(filterOverride.category);
     setStatus("loading");
+    setResults([]);
+    setHasNext(false);
     setMessage("");
     try {
       const sourceKinds = resolveSourceKinds(filter);
@@ -199,6 +202,8 @@ export function MediaImporter({
   const searchPixabay = async (nextPage = 1, filterOverride = sourceFilters) => {
     const cleanQuery = pixabayQuery.trim();
     setPixabayStatus("loading");
+    setPixabayResults([]);
+    setPixabayHasNext(false);
     setPixabayMessage("");
     try {
       const sourceKinds = resolveSourceKinds(filter);
@@ -489,6 +494,7 @@ function MediaSourceSearch({
       provider={provider}
       viewMode={viewMode}
       previewMode={previewMode}
+      orientation={sourceFilters.orientation}
       cachedAssets={cachedAssets}
       previewAssets={previewAssets}
       downloadStatus={downloadStatus}
@@ -686,6 +692,7 @@ function SourceResultsPanel({
   provider,
   viewMode,
   previewMode,
+  orientation,
   cachedAssets,
   previewAssets,
   downloadStatus,
@@ -703,11 +710,15 @@ function SourceResultsPanel({
   downloadedOverlayRef
 }) {
   const providerId = provider.toLowerCase();
+  const isPortraitGrid = viewMode !== "tiles" && orientation === "vertical";
+  const resultsGridClass = viewMode === "tiles"
+    ? "grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1"
+    : `grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1 ${isPortraitGrid ? "grid-cols-4" : "grid-cols-3"}`;
 
   return (
     <div className="relative flex h-full min-h-48 flex-col overflow-hidden rounded-md border border-[var(--border)] bg-[#141414] p-2">
       {displayResults.length ? (
-        <div className={viewMode === "tiles" ? "grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1" : "grid min-h-0 flex-1 grid-cols-3 content-start gap-2 overflow-y-auto pr-1"}>
+        <div className={resultsGridClass}>
           {displayResults.map((item) => (
             <MediaSourceResult
               key={`${provider}-${item.type}-${item.id}`}
@@ -715,6 +726,7 @@ function SourceResultsPanel({
               provider={provider}
               viewMode={viewMode}
               previewMode={previewMode}
+              orientation={orientation}
               previewCached={previewAssets?.[assetKey(providerId, item)]}
               cached={cachedAssets?.[assetKey(providerId, item)]}
               downloadState={downloadStatus?.[assetKey(providerId, item)]}
@@ -726,6 +738,8 @@ function SourceResultsPanel({
             />
           ))}
         </div>
+      ) : status === "loading" ? (
+        <LoadingThumbnailGrid className={resultsGridClass} count={isPortraitGrid ? 12 : 9} portrait={isPortraitGrid} />
       ) : (
         <div className="grid min-h-44 flex-1 place-items-center text-center">
           <div>
@@ -762,6 +776,7 @@ function SourceResultsPanel({
             items={downloadedItems}
             provider={provider}
             previewMode={previewMode}
+            orientation={orientation}
             favorites={favorites}
             onAddCached={onAddCached}
             onToggleFavorite={onToggleFavorite}
@@ -773,8 +788,21 @@ function SourceResultsPanel({
   );
 }
 
-function DownloadedAssetsOverlay({ items = [], provider, previewMode, favorites, onAddCached, onToggleFavorite, onCanvasPreview }) {
+function LoadingThumbnailGrid({ className, count = 9, portrait = false }) {
+  return (
+    <div className={className}>
+      {Array.from({ length: count }).map((_, index) => (
+        <div key={index} className={`checkerboard grid ${portrait ? "aspect-[3/4]" : "aspect-video"} place-items-center overflow-hidden rounded-md border border-[var(--border)] bg-[#121212]`}>
+          <Loader2 size={18} className="animate-spin text-[var(--accent)]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DownloadedAssetsOverlay({ items = [], provider, previewMode, orientation, favorites, onAddCached, onToggleFavorite, onCanvasPreview }) {
   const providerId = provider.toLowerCase();
+  const gridClass = `grid min-h-0 flex-1 content-start gap-2 overflow-y-auto p-2 ${orientation === "vertical" ? "grid-cols-4" : "grid-cols-3"}`;
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden rounded-md border border-[var(--border)] bg-[#101010] shadow-xl shadow-black/50">
@@ -785,7 +813,7 @@ function DownloadedAssetsOverlay({ items = [], provider, previewMode, favorites,
         </div>
       </div>
       {items.length ? (
-        <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-2 overflow-y-auto p-2">
+        <div className={gridClass}>
           {items.map(({ item, cached }) => (
             <MediaSourceResult
               key={`${provider}-${item.type}-${item.id}`}
@@ -793,6 +821,7 @@ function DownloadedAssetsOverlay({ items = [], provider, previewMode, favorites,
               provider={provider}
               viewMode="thumbnail"
               previewMode={previewMode}
+              orientation={orientation}
               previewCached={cached}
               cached={cached}
               downloadState="done"
@@ -835,24 +864,56 @@ const orderOptions = [
   { value: "latest", label: "Latest" }
 ];
 
+const loadedThumbnailUrls = new Set();
+
+function imageSrcForInitialState(item, previewCached) {
+  return item.previewUrl || item.thumbnailUrl || item.webformatUrl || previewCached?.url || item.url;
+}
+
+function uniqueSources(sources) {
+  return [...new Set(sources.filter(Boolean))];
+}
+
 const orientationOptions = [
   { value: "horizontal", label: "Horizontal", icon: RectangleHorizontal },
   { value: "vertical", label: "Vertical", icon: RectangleVertical }
 ];
 
 
-function MediaSourceResult({ item, provider, viewMode, previewMode, previewCached, cached, downloadState, favorite, onDownload, onAddCached, onToggleFavorite, onCanvasPreview }) {
+function MediaSourceResult({ item, provider, viewMode, previewMode, orientation, previewCached, cached, downloadState, favorite, onDownload, onAddCached, onToggleFavorite, onCanvasPreview }) {
   const [showZoomPreview, setShowZoomPreview] = useState(false);
   const [zoomAnchor, setZoomAnchor] = useState(null);
+  const [imageLoaded, setImageLoaded] = useState(() => loadedThumbnailUrls.has(imageSrcForInitialState(item, previewCached)));
+  const [thumbnailSourceIndex, setThumbnailSourceIndex] = useState(0);
+  const [loadedThumbnailSrc, setLoadedThumbnailSrc] = useState("");
+  const [zoomSourceIndex, setZoomSourceIndex] = useState(0);
   const zoomButtonRef = useRef(null);
   const itemUrl = item.pexelsUrl || item.pixabayUrl || item.sourceUrl;
   const author = item.photographer || item.creator || provider;
   const isTiles = viewMode === "tiles";
+  const isPortraitMedia = orientation === "vertical" || (Number(item.height) > Number(item.width) && Number(item.width) > 0);
+  const thumbnailAspectClass = isTiles ? "h-[92px]" : isPortraitMedia ? "aspect-[3/4]" : "aspect-video";
+  const previewPopoverClass = isPortraitMedia ? "w-[min(300px,calc(100vw-16px))]" : "w-[min(420px,calc(100vw-16px))]";
+  const previewFrameClass = isPortraitMedia ? "aspect-[3/4] max-h-[min(520px,calc(100vh-120px))]" : "h-56";
   const providerId = provider.toLowerCase();
   const loading = downloadState === "loading";
-  const imageSrc = previewCached?.url || item.previewUrl || item.thumbnailUrl || item.webformatUrl || item.url;
-  const zoomSrc = cached?.url || item.webformatUrl || previewCached?.url || item.previewUrl || item.thumbnailUrl || item.url;
-  const fallbackSources = [cached?.url, item.webformatUrl, previewCached?.url, item.previewUrl, item.thumbnailUrl, item.url].filter(Boolean);
+  const thumbnailSources = uniqueSources([item.previewUrl, item.thumbnailUrl, item.webformatUrl, previewCached?.url, item.url]);
+  const thumbnailSourcesKey = thumbnailSources.join("|");
+  const imageSrc = thumbnailSources[thumbnailSourceIndex] || thumbnailSources[0] || "";
+  const zoomSources = uniqueSources([loadedThumbnailSrc, imageSrc, item.webformatUrl, item.previewUrl, item.thumbnailUrl, previewCached?.url, cached?.url, item.url]);
+  const zoomSourcesKey = zoomSources.join("|");
+  const zoomSrc = zoomSources[zoomSourceIndex] || zoomSources[0] || imageSrc;
+  useEffect(() => {
+    setThumbnailSourceIndex(0);
+    setLoadedThumbnailSrc("");
+  }, [thumbnailSourcesKey]);
+  useEffect(() => {
+    setImageLoaded(loadedThumbnailUrls.has(imageSrc));
+  }, [imageSrc]);
+  useEffect(() => {
+    setZoomSourceIndex(0);
+  }, [zoomSourcesKey]);
+
   const previewMedia = {
     id: `online-preview-${providerId}-${item.type}-${item.id}`,
     name: item.name,
@@ -865,7 +926,8 @@ function MediaSourceResult({ item, provider, viewMode, previewMode, previewCache
     metadata: {
       source: providerId,
       creator: author,
-      sourceUrl: itemUrl
+      sourceUrl: itemUrl,
+      orientation: isPortraitMedia ? "vertical" : "horizontal"
     }
   };
   const showPreview = () => {
@@ -883,22 +945,34 @@ function MediaSourceResult({ item, provider, viewMode, previewMode, previewCache
     }
     setShowZoomPreview(false);
   };
-  const handleImageError = (event) => {
-    const image = event.currentTarget;
-    const nextIndex = Number(image.dataset.fallbackIndex || "0") + 1;
-    const nextSrc = fallbackSources[nextIndex];
-    if (nextSrc) {
-      image.dataset.fallbackIndex = String(nextIndex);
-      image.src = nextSrc;
-      return;
-    }
-    image.style.display = "none";
+  const handleImageError = () => {
+    setThumbnailSourceIndex((index) => Math.min(index + 1, thumbnailSources.length - 1));
+  };
+  const markImageLoaded = (event) => {
+    const loadedSrc = event.currentTarget.currentSrc || event.currentTarget.src || imageSrc;
+    loadedThumbnailUrls.add(loadedSrc);
+    setLoadedThumbnailSrc(loadedSrc);
+    setImageLoaded(true);
+  };
+  const handleZoomImageError = () => {
+    setZoomSourceIndex((index) => Math.min(index + 1, zoomSources.length - 1));
   };
 
   return (
     <div className="overflow-hidden rounded-md border border-[var(--border)] bg-[#121212]">
-      <div className={`checkerboard group relative overflow-hidden bg-black ${isTiles ? "h-[92px]" : "aspect-video"}`}>
-        <img src={imageSrc} alt="" className="h-full w-full object-cover" onError={handleImageError} />
+      <div className={`checkerboard group relative overflow-hidden bg-black ${thumbnailAspectClass}`}>
+        {!imageLoaded ? (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-[#121212]">
+            <Loader2 size={18} className="animate-spin text-[var(--accent)]" />
+          </div>
+        ) : null}
+        <img
+          src={imageSrc}
+          alt=""
+          className={`h-full w-full object-cover transition-opacity duration-150 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+          onLoad={markImageLoaded}
+          onError={handleImageError}
+        />
         <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/70 opacity-0 transition-opacity group-hover:opacity-90" />
         {item.type === "video" ? (
           <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 font-mono text-[9px] text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -935,8 +1009,8 @@ function MediaSourceResult({ item, provider, viewMode, previewMode, previewCache
             {showZoomPreview && zoomSrc
               ? createPortal(
                   <div
-                    className="pointer-events-none fixed z-[2147483647] w-[min(420px,calc(100vw-16px))] animate-[zoomIn_140ms_ease-out] overflow-hidden rounded-md border border-[var(--border)] bg-[#101010] shadow-xl shadow-black/60"
-                    style={previewPopoverStyle(zoomAnchor)}
+                    className={`pointer-events-none fixed z-[2147483647] ${previewPopoverClass} animate-[zoomIn_140ms_ease-out] overflow-hidden rounded-md border border-[var(--border)] bg-[#101010] shadow-xl shadow-black/60`}
+                    style={previewPopoverStyle(zoomAnchor, isPortraitMedia)}
                   >
                       <div className="flex h-9 items-center justify-between border-b border-white/10 px-3">
                         <div className="min-w-0">
@@ -945,8 +1019,8 @@ function MediaSourceResult({ item, provider, viewMode, previewMode, previewCache
                         </div>
                         <span className="ml-3 shrink-0 rounded border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">Preview</span>
                       </div>
-                      <div className="checkerboard grid h-56 place-items-center bg-black">
-                        <img src={zoomSrc} alt="" className="h-full w-full object-contain" onError={handleImageError} />
+                      <div className={`checkerboard grid ${previewFrameClass} place-items-center bg-black`}>
+                        <img key={zoomSrc} src={zoomSrc} alt="" className="h-full w-full object-contain" onError={handleZoomImageError} />
                       </div>
                   </div>,
                   document.body
@@ -1162,13 +1236,13 @@ async function searchPixabayProvider(payload) {
 function normalizePixabayImageResult(item) {
   const previewUrl = item.previewURL || item.webformatURL || "";
   const webformatUrl = item.webformatURL || item.previewURL || "";
-  const downloadUrl = item.imageURL || item.fullHDURL || item.largeImageURL || item.webformatURL || item.previewURL || item.pageURL;
+  const download = pickPixabayImageDownload(item);
   return {
     id: String(item.id),
     type: "image",
-    name: `Pixabay Image ${item.id}.jpg`,
-    url: downloadUrl,
-    downloadUrl,
+    name: `Pixabay ${download.kind} ${item.id}.${download.extension}`,
+    url: download.url,
+    downloadUrl: download.url,
     previewUrl,
     webformatUrl,
     previewDownloadUrl: previewUrl,
@@ -1181,6 +1255,17 @@ function normalizePixabayImageResult(item) {
     pixabayUrl: item.pageURL,
     creator: item.user || "Pixabay",
     creatorUrl: pixabayUserUrl(item)
+  };
+}
+
+function pickPixabayImageDownload(item) {
+  if (item.vectorURL) {
+    return { url: item.vectorURL, kind: "Vector", extension: "svg" };
+  }
+  return {
+    url: item.imageURL || item.fullHDURL || item.largeImageURL || item.webformatURL || item.previewURL || item.pageURL,
+    kind: "Image",
+    extension: "jpg"
   };
 }
 
@@ -1257,11 +1342,11 @@ function fallbackDownloadedItem(key, provider, cached) {
   };
 }
 
-function previewPopoverStyle(anchorRect) {
-  const width = Math.min(420, window.innerWidth - 16);
-  const height = 270;
+function previewPopoverStyle(anchorRect, isPortrait = false) {
+  const width = Math.min(isPortrait ? 300 : 420, window.innerWidth - 16);
+  const height = Math.min(isPortrait ? 460 : 270, window.innerHeight - 16);
   const left = Math.max(8, Math.min(anchorRect?.right ? anchorRect.right + 8 : 160, window.innerWidth - width - 8));
-  const preferredTop = anchorRect?.top ? anchorRect.top - 12 : 120;
+  const preferredTop = anchorRect?.top ? anchorRect.top - (isPortrait ? 56 : 12) : 120;
   const top = Math.max(8, Math.min(preferredTop, window.innerHeight - height - 8));
   return { left, top };
 }
