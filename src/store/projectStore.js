@@ -49,6 +49,11 @@ export const useProjectStore = create((set, get) => ({
   ffmpegCapabilities: null,
   exportPresets: {},
   customFFmpegPresets: [],
+  setProjectName: (projectName) =>
+    set((state) => {
+      const nextName = String(projectName ?? "").trim();
+      return { projectName: nextName || state.projectName };
+    }),
   setFFmpegCapabilities: (capabilities) => set({ ffmpegCapabilities: capabilities, ffmpegRuntime: capabilities?.available ? "native" : "unavailable" }),
   history: [{ tracks: initialTracks, timeline: initialTimeline, markers: [], keyframes: [], duration: 12, selectedClipId: null, selectedClipIds: [] }],
   historyIndex: 0,
@@ -743,7 +748,7 @@ function createStickerClip(trackId, sticker, start) {
 function createOverlayTemplateClip(trackId, templateType, start) {
   const presets = {
     shape: { name: "Shape", shape: "rectangle", color: "#4d9eff", opacity: 0.8, scaleX: 0.35, scaleY: 0.2 },
-    watermark: { name: "Watermark", text: "VidmePro+", opacity: 0.35, posX: 0.78, posY: 0.84, fontSize: 28 },
+    watermark: { name: "Watermark", text: "Vidme Pro", opacity: 0.35, posX: 0.78, posY: 0.84, fontSize: 28 },
     lowerThird: { name: "Lower Third", text: "Title\\nSubtitle", posX: 0.28, posY: 0.78, fontSize: 36 },
     titleCard: { name: "Title Card", text: "Title", posX: 0.5, posY: 0.5, fontSize: 64 },
     endScreen: { name: "End Screen", text: "Thanks for watching", posX: 0.5, posY: 0.5, fontSize: 48 }

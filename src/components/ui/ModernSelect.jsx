@@ -19,6 +19,12 @@ export function ModernSelect({
   const selected = normalized.find((option) => option.value === value) ?? normalized.find((option) => !option.group && !option.disabled) ?? normalized[0];
   const SelectedIcon = selected?.icon ?? LeadingIcon;
 
+  const selectOption = (option) => {
+    if (option.disabled) return;
+    onChange(option.value);
+    setOpen(false);
+  };
+
   useEffect(() => {
     if (!open) return undefined;
     const close = (event) => {
@@ -58,10 +64,12 @@ export function ModernSelect({
                 key={option.value}
                 type="button"
                 disabled={option.disabled}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  selectOption(option);
                 }}
+                onClick={() => selectOption(option)}
                 className={`flex h-8 w-full items-center gap-2 rounded px-2 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-40 ${
                   active ? "bg-[#152235] text-white" : "text-[var(--text-secondary)] hover:bg-[#1d2733] hover:text-white"
                 }`}

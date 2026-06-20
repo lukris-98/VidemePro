@@ -23,7 +23,7 @@ export function renderPreviewFrame(ctx, canvas, { time, tracks, mediaItems, vide
   ctx.fillStyle = "rgba(255,255,255,0.75)";
   ctx.font = "12px Arial";
   ctx.textAlign = "right";
-  ctx.fillText("VidemePro+", width - 18, height - 16);
+  ctx.fillText("Vidme Pro", width - 18, height - 16);
 }
 
 export function getActiveTextClips(tracks, time) {

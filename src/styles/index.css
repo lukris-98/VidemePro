@@ -124,3 +124,65 @@ button {
     transform: scale(1);
   }
 }
+
+@keyframes autoFillOrbit {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes autoFillModalGradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.auto-fill-border {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #101010;
+  isolation: isolate;
+}
+
+.auto-fill-border::before {
+  content: "";
+  position: absolute;
+  inset: -80%;
+  z-index: -2;
+  background: conic-gradient(from 0deg, #4d9eff, #3ddc84, #f1c94c, #ff5ca8, #8b5cf6, #4d9eff);
+  animation: autoFillOrbit 9s linear infinite;
+}
+
+.auto-fill-border::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: 5px;
+  background: #101010;
+}
+
+.auto-fill-modal-bg {
+  background:
+    radial-gradient(circle at 14% 18%, rgba(77, 158, 255, 0.72), transparent 30%),
+    radial-gradient(circle at 86% 12%, rgba(61, 220, 132, 0.46), transparent 28%),
+    radial-gradient(circle at 80% 86%, rgba(255, 92, 168, 0.42), transparent 34%),
+    radial-gradient(circle at 20% 92%, rgba(139, 92, 246, 0.52), transparent 32%),
+    linear-gradient(135deg, #080808, #111827, #08131f, #111111);
+  background-size: 220% 220%;
+  animation: autoFillModalGradient 8s ease-in-out infinite;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.72),
+    0 0 34px rgba(77, 158, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}

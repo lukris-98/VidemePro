@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs/promises");
 const os = require("os");
@@ -8,9 +8,128 @@ const { pathToFileURL } = require("url");
 const FFMPEG_TIMEOUT_MS = 30_000;
 const PEXELS_API_BASE = "https://api.pexels.com/v1";
 const PIXABAY_API_BASE = "https://pixabay.com/api";
+const SPOTIFY_RAPIDAPI_HOST = "spotify23.p.rapidapi.com";
+const APIFRAME_API_BASE = "https://api.apiframe.ai/v2";
+const APIFRAME_KEYS_FILE = "apiframe-keys.json";
+const OPENROUTER_API_BASE = "https://openrouter.ai/api/v1";
+const OPENROUTER_KEYS_FILE = "openrouter-keys.json";
 
 // Map of active transcoding processes: jobId -> child process
 const activeJobs = new Map();
+let runtimeApiframeKeys = [];
+let runtimeOpenrouterKeys = [];
+
+function maskApiKey(key) {
+  if (!key) return "";
+  if (key.length <= 12) return `${key.slice(0, 3)}...${key.slice(-3)}`;
+  return `${key.slice(0, 7)}...${key.slice(-4)}`;
+}
+
+function getApiframeKeyPath() {
+  return path.join(app.getPath("userData"), APIFRAME_KEYS_FILE);
+}
+
+function getOpenrouterKeyPath() {
+  return path.join(app.getPath("userData"), OPENROUTER_KEYS_FILE);
+}
+
+async function loadStoredApiframeKeys() {
+  try {
+    const raw = await fs.readFile(getApiframeKeyPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    runtimeApiframeKeys = Array.isArray(parsed?.keys) ? parsed.keys.filter((key) => typeof key === "string" && key.trim()) : [];
+  } catch {
+    runtimeApiframeKeys = [];
+  }
+}
+
+async function saveStoredApiframeKeys() {
+  await fs.writeFile(getApiframeKeyPath(), JSON.stringify({ keys: runtimeApiframeKeys }, null, 2), "utf8");
+}
+
+async function loadStoredOpenrouterKeys() {
+  try {
+    const raw = await fs.readFile(getOpenrouterKeyPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    runtimeOpenrouterKeys = Array.isArray(parsed?.keys) ? parsed.keys.filter((key) => typeof key === "string" && key.trim()) : [];
+  } catch {
+    runtimeOpenrouterKeys = [];
+  }
+}
+
+async function saveStoredOpenrouterKeys() {
+  await fs.writeFile(getOpenrouterKeyPath(), JSON.stringify({ keys: runtimeOpenrouterKeys }, null, 2), "utf8");
+}
+
+function getAllApiframeKeys() {
+  const envKey = process.env.APIFRAME_API_KEY || "";
+  const keys = [...runtimeApiframeKeys];
+  if (envKey && !keys.includes(envKey)) keys.unshift(envKey);
+  return keys;
+}
+
+function getAllOpenrouterKeys() {
+  const envKey = process.env.OPENROUTER_API_KEY || "";
+  const keys = [...runtimeOpenrouterKeys];
+  if (envKey && !keys.includes(envKey)) keys.unshift(envKey);
+  return keys;
+}
+
+async function getApiframeUserInfo(apiKey) {
+  try {
+    const response = await fetch(`${APIFRAME_API_BASE}/me`, {
+      method: "GET",
+      headers: { "X-API-Key": apiKey }
+    });
+    const text = await response.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { raw: text };
+    }
+    if (!response.ok) {
+      return { ok: false, error: data?.error || text || `Apiframe gagal (${response.status}).` };
+    }
+    return { ok: true, data };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Gagal membaca info user Apiframe." };
+  }
+}
+
+async function listApiframeKeys({ checkCredits = false } = {}) {
+  const keys = getAllApiframeKeys();
+  const entries = keys.map((key, index) => ({
+    id: key,
+    index: index + 1,
+    masked: maskApiKey(key),
+    credit: null,
+    connected: false,
+    source: key === process.env.APIFRAME_API_KEY ? "env" : "saved"
+  }));
+  if (!checkCredits) return entries;
+  return Promise.all(entries.map(async (entry) => {
+    const info = await getApiframeUserInfo(entry.id);
+    if (!info.ok) return { ...entry, error: info.error };
+    return {
+      ...entry,
+      connected: true,
+      credit: Number(info.data?.team?.credits ?? 0),
+      userEmail: info.data?.user?.email || "",
+      teamName: info.data?.team?.name || "",
+      plan: info.data?.team?.plan || "",
+      apiKeyName: info.data?.apiKey?.name || ""
+    };
+  }));
+}
+
+function getActiveApiframeKey() {
+  return runtimeApiframeKeys[0] || process.env.APIFRAME_API_KEY || "";
+}
+
+function getActiveOpenrouterKey() {
+  return runtimeOpenrouterKeys[0] || process.env.OPENROUTER_API_KEY || "";
+}
 
 function loadLocalEnv() {
   const envPath = path.join(__dirname, "..", ".env.local");
@@ -405,11 +524,243 @@ async function searchPixabay(payload = {}) {
   };
 }
 
+async function getSpotifyTrackLyrics(payload = {}) {
+  const id = String(payload.id || "").trim();
+  const apiKey = process.env.RAPIDAPI_KEY || "";
+  if (!id) return { ok: false, error: "Track ID masih kosong." };
+  if (!apiKey) return { ok: false, error: "RAPIDAPI_KEY belum dikonfigurasi di .env.local." };
+
+  const url = new URL(`https://${SPOTIFY_RAPIDAPI_HOST}/track_lyrics/`);
+  url.searchParams.set("id", id);
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "X-RapidAPI-Key": apiKey,
+      "X-RapidAPI-Host": SPOTIFY_RAPIDAPI_HOST
+    }
+  });
+  const text = await response.text();
+  if (!response.ok) return { ok: false, error: `RapidAPI gagal (${response.status}). ${text}`.trim() };
+  try {
+    return { ok: true, data: JSON.parse(text) };
+  } catch {
+    return { ok: false, error: "Response RapidAPI bukan JSON valid." };
+  }
+}
+
+async function apiframeRequest(pathname, options = {}) {
+  const apiKey = getActiveApiframeKey();
+  if (!apiKey) return { ok: false, error: "Belum ada Apiframe API Key terhubung." };
+  const response = await fetch(`${APIFRAME_API_BASE}${pathname}`, {
+    ...options,
+    headers: {
+      "X-API-Key": apiKey,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { raw: text };
+  }
+  if (!response.ok) {
+    return { ok: false, status: response.status, error: data?.error || text || "Apiframe request gagal.", details: data?.details || null };
+  }
+  return { ok: true, data };
+}
+
+async function generateApiframeMusic(payload = {}) {
+  const prompt = String(payload.prompt || "").trim();
+  const model = String(payload.model || "suno").trim();
+  if (!prompt) return { ok: false, error: "Prompt music masih kosong." };
+  const body = { prompt, model };
+  if (payload.sunoParams) body.sunoParams = payload.sunoParams;
+  if (payload.udioParams) body.udioParams = payload.udioParams;
+  if (payload.murekaParams) body.murekaParams = payload.murekaParams;
+  if (payload.lyriaParams) body.lyriaParams = payload.lyriaParams;
+  if (payload.elevenlabsParams) body.elevenlabsParams = payload.elevenlabsParams;
+  return apiframeRequest("/music/generate", { method: "POST", body: JSON.stringify(body) });
+}
+
+async function getApiframeJob(payload = {}) {
+  const jobId = String(payload.jobId || "").trim();
+  if (!jobId) return { ok: false, error: "Job ID kosong." };
+  return apiframeRequest(`/jobs/${encodeURIComponent(jobId)}`, { method: "GET" });
+}
+
+async function getOpenrouterKeyInfo(apiKey) {
+  try {
+    const response = await fetch(`${OPENROUTER_API_BASE}/key`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` }
+    });
+    const text = await response.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { raw: text };
+    }
+    if (!response.ok) {
+      return { ok: false, error: data?.error?.message || data?.error || text || `OpenRouter gagal (${response.status}).` };
+    }
+    return { ok: true, data };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Gagal membaca info OpenRouter." };
+  }
+}
+
+async function listOpenrouterKeys({ checkCredits = false } = {}) {
+  const keys = getAllOpenrouterKeys();
+  const entries = keys.map((key, index) => ({
+    id: key,
+    index: index + 1,
+    masked: maskApiKey(key),
+    credit: null,
+    connected: false,
+    source: key === process.env.OPENROUTER_API_KEY ? "env" : "saved"
+  }));
+  if (!checkCredits) return entries;
+  return Promise.all(entries.map(async (entry) => {
+    const info = await getOpenrouterKeyInfo(entry.id);
+    if (!info.ok) return { ...entry, error: info.error };
+    const data = info.data?.data || info.data || {};
+    const limit = Number(data.limit ?? data.credit_limit ?? NaN);
+    const usage = Number(data.usage ?? data.usage_total ?? 0);
+    const credit = Number.isFinite(limit) ? Math.max(0, limit - usage) : null;
+    return {
+      ...entry,
+      connected: true,
+      credit,
+      userEmail: data.label || data.name || "",
+      limit: Number.isFinite(limit) ? limit : null,
+      usage: Number.isFinite(usage) ? usage : null
+    };
+  }));
+}
+
+async function addApiframeKeys(payload = {}) {
+  const keys = String(payload.keys || "")
+    .split(/\r?\n/)
+    .map((key) => key.trim())
+    .filter(Boolean);
+  if (!keys.length) return { ok: false, error: "API Key masih kosong." };
+  runtimeApiframeKeys = [...new Set([...runtimeApiframeKeys, ...keys])];
+  await saveStoredApiframeKeys();
+  return { ok: true, keys: await listApiframeKeys({ checkCredits: true }) };
+}
+
+async function addOpenrouterKeys(payload = {}) {
+  const keys = String(payload.keys || "")
+    .split(/\r?\n/)
+    .map((key) => key.trim())
+    .filter(Boolean);
+  if (!keys.length) return { ok: false, error: "OpenRouter API Key masih kosong." };
+  runtimeOpenrouterKeys = [...new Set([...runtimeOpenrouterKeys, ...keys])];
+  await saveStoredOpenrouterKeys();
+  return { ok: true, keys: await listOpenrouterKeys({ checkCredits: true }) };
+}
+
+async function removeApiframeKey(payload = {}) {
+  const id = String(payload.id || "");
+  runtimeApiframeKeys = runtimeApiframeKeys.filter((key) => key !== id);
+  await saveStoredApiframeKeys();
+  return { ok: true, keys: await listApiframeKeys({ checkCredits: true }) };
+}
+
+async function removeOpenrouterKey(payload = {}) {
+  const id = String(payload.id || "");
+  runtimeOpenrouterKeys = runtimeOpenrouterKeys.filter((key) => key !== id);
+  await saveStoredOpenrouterKeys();
+  return { ok: true, keys: await listOpenrouterKeys({ checkCredits: true }) };
+}
+
+async function completeOpenrouterChat(payload = {}) {
+  const apiKey = getActiveOpenrouterKey();
+  if (!apiKey) return { ok: false, error: "Belum ada OpenRouter API Key terhubung." };
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  if (!messages.length) return { ok: false, error: "Prompt Auto Fill masih kosong." };
+  const response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://vidme.pro",
+      "X-OpenRouter-Title": "Vidme Pro"
+    },
+    body: JSON.stringify({
+      model: payload.model || "~openai/gpt-latest",
+      messages,
+      temperature: Number.isFinite(payload.temperature) ? payload.temperature : 0.7,
+      response_format: { type: "json_object" }
+    })
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { raw: text };
+  }
+  if (!response.ok) return { ok: false, status: response.status, error: data?.error?.message || data?.error || text || "OpenRouter request gagal." };
+  return { ok: true, data };
+}
+
+async function openExternalUrl(payload = {}) {
+  const url = String(payload.url || "");
+  if (!/^https:\/\/(apiframe\.ai|openrouter\.ai)(\/|$)/i.test(url)) return { ok: false, error: "URL tidak diizinkan." };
+  await shell.openExternal(url);
+  return { ok: true };
+}
+
 ipcMain.handle("ffmpeg:get-capabilities", async () => getFFmpegCapabilities());
 
 ipcMain.handle("pexels:search", async (_event, payload) => searchPexels(payload));
 ipcMain.handle("pixabay:search", async (_event, payload) => searchPixabay(payload));
+ipcMain.handle("spotify:track-lyrics", async (_event, payload) => getSpotifyTrackLyrics(payload));
 ipcMain.handle("asset:download", async (_event, payload) => downloadRemoteAsset(payload));
+ipcMain.handle("apiframe:music-generate", async (_event, payload) => generateApiframeMusic(payload));
+ipcMain.handle("apiframe:job", async (_event, payload) => getApiframeJob(payload));
+ipcMain.handle("apiframe:keys-list", async (_event, payload = {}) => ({ ok: true, keys: await listApiframeKeys({ checkCredits: Boolean(payload.checkCredits) }) }));
+ipcMain.handle("apiframe:keys-add", async (_event, payload) => addApiframeKeys(payload));
+ipcMain.handle("apiframe:key-remove", async (_event, payload) => removeApiframeKey(payload));
+ipcMain.handle("openrouter:keys-list", async (_event, payload = {}) => ({ ok: true, keys: await listOpenrouterKeys({ checkCredits: Boolean(payload.checkCredits) }) }));
+ipcMain.handle("openrouter:keys-add", async (_event, payload) => addOpenrouterKeys(payload));
+ipcMain.handle("openrouter:key-remove", async (_event, payload) => removeOpenrouterKey(payload));
+ipcMain.handle("openrouter:chat-complete", async (_event, payload) => completeOpenrouterChat(payload));
+ipcMain.handle("shell:open-external", async (_event, payload) => openExternalUrl(payload));
+
+ipcMain.handle("file:exists", async (_event, payload) => {
+  const filePath = payload?.filePath;
+  if (!filePath) return { ok: false, exists: false };
+  try {
+    const stat = await fs.stat(filePath);
+    return { ok: true, exists: stat.isFile(), size: stat.size, mtimeMs: stat.mtimeMs };
+  } catch {
+    return { ok: true, exists: false };
+  }
+});
+
+ipcMain.handle("file:read-audio", async (_event, payload) => {
+  const filePath = payload?.filePath;
+  if (!filePath) return { ok: false, error: "Path file kosong." };
+  try {
+    const buffer = await fs.readFile(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mime =
+      ext === ".wav" ? "audio/wav" :
+      ext === ".mp3" ? "audio/mpeg" :
+      ext === ".ogg" ? "audio/ogg" :
+      ext === ".m4a" ? "audio/mp4" :
+      "audio/*";
+    return { ok: true, name: path.basename(filePath), path: filePath, size: buffer.byteLength, mime, bytes: [...buffer] };
+  } catch (error) {
+    return { ok: false, error: error.message || "Gagal membaca file audio." };
+  }
+});
 
 ipcMain.handle("ffmpeg:get-filter-help", async (_event, filterName) => {
   if (!filterName || typeof filterName !== "string" || !/^[a-z0-9_]+$/i.test(filterName)) {
@@ -645,6 +996,8 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   await loadLocalEnv();
+  await loadStoredApiframeKeys();
+  await loadStoredOpenrouterKeys();
   createWindow();
 
   app.on("activate", () => {

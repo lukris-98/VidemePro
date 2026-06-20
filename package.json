@@ -14,6 +14,7 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@gradio/client": "^2.3.0",
     "@jitsi/rnnoise-wasm": "^0.2.1",
     "@mediapipe/face_detection": "^0.4.1646425229",
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",
@@ -34,7 +35,7 @@
   },
   "build": {
     "appId": "com.videmepro.editor",
-    "productName": "VidmePro+",
+    "productName": "Vidme Pro",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -47,7 +48,7 @@
       "target": [
         "portable"
       ],
-      "artifactName": "VidmePro+-v${version}.${ext}"
+      "artifactName": "Vidme Pro-v${version}.${ext}"
     }
   }
 }

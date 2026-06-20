@@ -33,5 +33,28 @@ contextBridge.exposeInMainWorld("videmeNative", {
   },
   pixabay: {
     search: (payload) => ipcRenderer.invoke("pixabay:search", payload)
+  },
+  spotify: {
+    lyrics: (payload) => ipcRenderer.invoke("spotify:track-lyrics", payload)
+  },
+  apiframe: {
+    generateMusic: (payload) => ipcRenderer.invoke("apiframe:music-generate", payload),
+    getJob: (jobId) => ipcRenderer.invoke("apiframe:job", { jobId }),
+    listKeys: (payload) => ipcRenderer.invoke("apiframe:keys-list", payload),
+    addKeys: (keys) => ipcRenderer.invoke("apiframe:keys-add", { keys }),
+    removeKey: (id) => ipcRenderer.invoke("apiframe:key-remove", { id })
+  },
+  openrouter: {
+    listKeys: (payload) => ipcRenderer.invoke("openrouter:keys-list", payload),
+    addKeys: (keys) => ipcRenderer.invoke("openrouter:keys-add", { keys }),
+    removeKey: (id) => ipcRenderer.invoke("openrouter:key-remove", { id }),
+    complete: (payload) => ipcRenderer.invoke("openrouter:chat-complete", payload)
+  },
+  shell: {
+    openExternal: (url) => ipcRenderer.invoke("shell:open-external", { url })
+  },
+  file: {
+    exists: (filePath) => ipcRenderer.invoke("file:exists", { filePath }),
+    readAudio: (filePath) => ipcRenderer.invoke("file:read-audio", { filePath })
   }
 });

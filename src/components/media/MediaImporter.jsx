@@ -30,7 +30,12 @@ import {
   UserRound,
   Utensils,
   Video,
-  Wallpaper
+  Wallpaper,
+  MessageCircle,
+  Smile,
+  Laugh,
+  Flame,
+  Heart
 } from "lucide-react";
 import { useMediaImport } from "../../hooks/useMediaImport.js";
 import { useMediaStore } from "../../store/mediaStore.js";
@@ -75,6 +80,13 @@ export function MediaImporter({
   const [pixabayHasNext, setPixabayHasNext] = useState(false);
   const [pixabayStatus, setPixabayStatus] = useState("idle");
   const [pixabayMessage, setPixabayMessage] = useState("");
+  const [giphyQuery, setGiphyQuery] = useState("");
+  const [giphyPage, setGiphyPage] = useState(1);
+  const [giphyResults, setGiphyResults] = useState([]);
+  const [giphyTotalResults, setGiphyTotalResults] = useState(0);
+  const [giphyHasNext, setGiphyHasNext] = useState(false);
+  const [giphyStatus, setGiphyStatus] = useState("idle");
+  const [giphyMessage, setGiphyMessage] = useState("");
   const [previewAssets, setPreviewAssets] = useState({});
   const [cachedAssets, setCachedAssets] = useState({});
   const [downloadStatus, setDownloadStatus] = useState({});
@@ -90,6 +102,10 @@ export function MediaImporter({
     }
   });
   const selectSourceTab = (nextTab) => {
+    const validCategories = nextTab === "giphy" ? giphyCategoryOptions : categoryOptions;
+    if (!validCategories.some((option) => option.value === sourceFilters.category)) {
+      setSourceFilters((state) => ({ ...state, category: "all" }));
+    }
     setSourceTab(nextTab);
     onSourceTabChange?.(nextTab);
   };
@@ -137,6 +153,11 @@ export function MediaImporter({
   const addPixabayItem = (item) => {
     addMediaItem(buildOnlineMediaItem(item, "pixabay", cachedAssets[assetKey("pixabay", item)]));
     setPixabayMessage(`${item.type === "video" ? "Video" : "Gambar"} Pixabay ditambahkan ke media library.`);
+  };
+
+  const addGiphyItem = (item) => {
+    addMediaItem(buildOnlineMediaItem(item, "giphy", cachedAssets[assetKey("giphy", item)]));
+    setGiphyMessage("GIF Giphy ditambahkan ke media library.");
   };
 
   const toggleFavorite = (provider, item) => {
@@ -233,12 +254,42 @@ export function MediaImporter({
     }
   };
 
+  const searchGiphy = async (nextPage = 1, filterOverride = sourceFilters) => {
+    const cleanQuery = giphyQuery.trim();
+    const effectiveQuery = cleanQuery || giphyCategoryQuery(filterOverride.category);
+    setGiphyStatus("loading");
+    setGiphyResults([]);
+    setGiphyHasNext(false);
+    setGiphyMessage("");
+    try {
+      const response = await searchGiphyProvider({
+        query: effectiveQuery,
+        page: nextPage,
+        perPage: 12,
+        ...filterOverride
+      });
+      if (!response?.ok) throw new Error(response?.error || "Pencarian Giphy gagal.");
+      setGiphyPage(nextPage);
+      setGiphyResults(response.items || []);
+      setGiphyTotalResults(response.totalResults || 0);
+      setGiphyHasNext(Boolean(response.hasNext));
+      setGiphyStatus("idle");
+      setGiphyMessage("");
+    } catch (error) {
+      setGiphyStatus("error");
+      setGiphyMessage(error instanceof Error ? error.message : "Pencarian Giphy gagal.");
+    }
+  };
+
   useEffect(() => {
     if (sourceTab === "pixabay" && pixabayStatus === "idle" && pixabayResults.length === 0) {
       searchPixabay(1);
     }
     if (sourceTab === "pexels" && status === "idle" && results.length === 0) {
       searchPexels(1);
+    }
+    if (sourceTab === "giphy" && giphyStatus === "idle" && giphyResults.length === 0) {
+      searchGiphy(1);
     }
   }, [sourceTab]);
 
@@ -260,10 +311,11 @@ export function MediaImporter({
       }}
     >
       <input {...inputProps} />
-      <nav className="border-r border-[var(--border)] bg-[#101010] p-1.5">
+      <nav className="no-scrollbar min-h-0 overflow-y-auto border-r border-[var(--border)] bg-[#101010] p-1.5">
         <SourceTabButton active={sourceTab === "device"} label="Upload" onClick={() => selectSourceTab("device")} />
         <SourceTabButton active={sourceTab === "pexels"} label="Pexels" onClick={() => selectSourceTab("pexels")} />
         <SourceTabButton active={sourceTab === "pixabay"} label="Pixabay" onClick={() => selectSourceTab("pixabay")} />
+        <SourceTabButton active={sourceTab === "giphy"} label="Giphy" onClick={() => selectSourceTab("giphy")} />
       </nav>
 
       <div className="min-w-0 p-3">
@@ -351,7 +403,7 @@ export function MediaImporter({
             onCanvasPreview={setTransientPreviewMedia}
             resultSlot={resultsSlot}
           />
-        ) : (
+        ) : sourceTab === "pixabay" ? (
           <MediaSourceSearch
             provider="Pixabay"
             filter={filter}
@@ -376,6 +428,42 @@ export function MediaImporter({
             hasNext={pixabayHasNext}
             onSearch={searchPixabay}
             onAdd={addPixabayItem}
+            cachedAssets={cachedAssets}
+            previewAssets={previewAssets}
+            downloadStatus={downloadStatus}
+            favorites={favorites}
+            onDownload={downloadOnlineAsset}
+            onAutoDownload={autoDownloadOnlineAssets}
+            onAddCached={addCachedOnlineItem}
+            onToggleFavorite={toggleFavorite}
+            onCanvasPreview={setTransientPreviewMedia}
+            resultSlot={resultsSlot}
+          />
+        ) : (
+          <MediaSourceSearch
+            provider="Giphy"
+            filter={filter}
+            filters={filters}
+            onFilterChange={onFilterChange}
+            sortOrder={sortOrder}
+            onSortOrderChange={onSortOrderChange}
+            viewMode={viewMode}
+            onViewModeChange={onViewModeChange}
+            previewMode={onlinePreviewMode}
+            onPreviewModeChange={setOnlinePreviewMode}
+            sourceFilters={sourceFilters}
+            onSourceFiltersChange={setSourceFilters}
+            query={giphyQuery}
+            onQueryChange={setGiphyQuery}
+            downloadedItems={downloadedOnlineItems("giphy", cachedAssets, giphyResults, favorites)}
+            downloadedOverlayOpen={downloadedOverlayOpen}
+            onDownloadedOverlayChange={setDownloadedOverlayOpen}
+            status={giphyStatus}
+            results={giphyResults}
+            page={giphyPage}
+            hasNext={giphyHasNext}
+            onSearch={searchGiphy}
+            onAdd={addGiphyItem}
             cachedAssets={cachedAssets}
             previewAssets={previewAssets}
             downloadStatus={downloadStatus}
@@ -451,9 +539,11 @@ function MediaSourceSearch({
   const [showFilters, setShowFilters] = useState(false);
   const filterOverlayRef = useRef(null);
   const isPixabay = provider === "Pixabay";
-  const usesCategoryRail = provider === "Pixabay" || provider === "Pexels";
+  const isGiphy = provider === "Giphy";
+  const usesCategoryRail = provider === "Pixabay" || provider === "Pexels" || isGiphy;
   const providerId = provider.toLowerCase();
-  const displayResults = mergeFavoriteResults(providerId, results, favorites);
+  const providerCategoryOptions = categoryOptionsForProvider(provider);
+  const displayResults = isGiphy ? results : mergeFavoriteResults(providerId, results, favorites);
   const updateSourceFilter = (key, value) => {
     const nextFilters = { ...sourceFilters, [key]: value };
     onSourceFiltersChange?.(nextFilters);
@@ -484,9 +574,9 @@ function MediaSourceSearch({
   }, [downloadedOverlayOpen, onDownloadedOverlayChange]);
 
   useEffect(() => {
-    if (!displayResults.length) return;
+    if (!displayResults.length || isGiphy) return;
     onAutoDownload?.(providerId, displayResults);
-  }, [providerId, displayResults, onAutoDownload]);
+  }, [providerId, displayResults, isGiphy, onAutoDownload]);
 
   const resultsPanel = (
     <SourceResultsPanel
@@ -505,6 +595,7 @@ function MediaSourceSearch({
       onSearch={onSearch}
       onDownload={onDownload}
       onAddCached={onAddCached}
+      onAddDirect={onAdd}
       onToggleFavorite={onToggleFavorite}
       onCanvasPreview={onCanvasPreview}
       downloadedItems={downloadedItems}
@@ -578,21 +669,23 @@ function MediaSourceSearch({
           <input
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Cari gambar..."
+            placeholder={isGiphy ? "Cari GIF..." : "Cari gambar..."}
             className="h-9 w-full rounded-md border border-[var(--border)] bg-[#111] pl-8 pr-2 text-xs text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
           />
         </label>
-        <button
-          ref={downloadedButtonRef}
-          type="button"
-          title="Terunduh"
-          onClick={() => onDownloadedOverlayChange?.(!downloadedOverlayOpen)}
-          className={`grid h-9 w-10 shrink-0 place-items-center rounded-md border border-[var(--border)] active:translate-y-px ${
-            downloadedOverlayOpen ? "bg-[var(--bg-hover)] text-[var(--accent)]" : "bg-[#111] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-white"
-          }`}
-        >
-          <Download size={14} />
-        </button>
+        {!isGiphy ? (
+          <button
+            ref={downloadedButtonRef}
+            type="button"
+            title="Terunduh"
+            onClick={() => onDownloadedOverlayChange?.(!downloadedOverlayOpen)}
+            className={`grid h-9 w-10 shrink-0 place-items-center rounded-md border border-[var(--border)] active:translate-y-px ${
+              downloadedOverlayOpen ? "bg-[var(--bg-hover)] text-[var(--accent)]" : "bg-[#111] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-white"
+            }`}
+          >
+            <Download size={14} />
+          </button>
+        ) : null}
         <button
           type="submit"
           disabled={status === "loading"}
@@ -606,7 +699,7 @@ function MediaSourceSearch({
         {usesCategoryRail ? (
           <div className="flex items-center gap-2">
             <HorizontalRail className="min-w-0 flex-1" contentClassName="flex gap-1" step={88}>
-              {categoryOptions.map((option) => {
+              {providerCategoryOptions.map((option) => {
                 const Icon = option.icon;
                 const active = sourceFilters.category === option.value;
                 return (
@@ -654,15 +747,17 @@ function MediaSourceSearch({
         {showFilters ? (
           <div className="absolute right-0 top-9 z-50 grid w-[272px] grid-cols-2 gap-2 rounded-md border border-[var(--border)] bg-[#101010] p-2 shadow-xl shadow-black/50">
             {isPixabay ? <ModernSelect label="Urutan" layout="compact" value={sourceFilters.order} onChange={(value) => updateSourceFilter("order", value)} options={orderOptions} buttonClassName="h-8 text-[11px]" /> : null}
-            <ModernSelect
-              label="Orientasi"
-              layout="compact"
-              value={sourceFilters.orientation}
-              onChange={(value) => updateSourceFilter("orientation", value)}
-              options={orientationOptions}
-              buttonClassName="h-8 text-[11px]"
-            />
-            {isPixabay ? (
+            {!isGiphy ? (
+              <ModernSelect
+                label="Orientasi"
+                layout="compact"
+                value={sourceFilters.orientation}
+                onChange={(value) => updateSourceFilter("orientation", value)}
+                options={orientationOptions}
+                buttonClassName="h-8 text-[11px]"
+              />
+            ) : null}
+            {isPixabay || isGiphy ? (
               <label className="flex h-9 items-center gap-2 rounded-md border border-[var(--border)] bg-[#111] px-2 text-[11px] text-[var(--text-secondary)]">
                 <input
                   type="checkbox"
@@ -703,6 +798,7 @@ function SourceResultsPanel({
   onSearch,
   onDownload,
   onAddCached,
+  onAddDirect,
   onToggleFavorite,
   onCanvasPreview,
   downloadedItems,
@@ -710,34 +806,45 @@ function SourceResultsPanel({
   downloadedOverlayRef
 }) {
   const providerId = provider.toLowerCase();
+  const isGiphy = providerId === "giphy";
   const isPortraitGrid = viewMode !== "tiles" && orientation === "vertical";
-  const resultsGridClass = viewMode === "tiles"
-    ? "grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1"
-    : `grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1 ${isPortraitGrid ? "grid-cols-4" : "grid-cols-3"}`;
+  const resultsGridClass = isGiphy
+    ? "grid min-h-0 flex-1 grid-cols-3 content-start gap-2 overflow-y-auto pr-1"
+    : viewMode === "tiles"
+      ? "grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1"
+      : `grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1 ${isPortraitGrid ? "grid-cols-4" : "grid-cols-3"}`;
 
   return (
     <div className="relative flex h-full min-h-48 flex-col overflow-hidden rounded-md border border-[var(--border)] bg-[#141414] p-2">
       {displayResults.length ? (
-        <div className={resultsGridClass}>
-          {displayResults.map((item) => (
-            <MediaSourceResult
-              key={`${provider}-${item.type}-${item.id}`}
-              item={item}
-              provider={provider}
-              viewMode={viewMode}
-              previewMode={previewMode}
-              orientation={orientation}
-              previewCached={previewAssets?.[assetKey(providerId, item)]}
-              cached={cachedAssets?.[assetKey(providerId, item)]}
-              downloadState={downloadStatus?.[assetKey(providerId, item)]}
-              favorite={Boolean(favorites?.[assetKey(providerId, item)])}
-              onDownload={onDownload}
-              onAddCached={onAddCached}
-              onToggleFavorite={onToggleFavorite}
-              onCanvasPreview={onCanvasPreview}
-            />
-          ))}
-        </div>
+        <>
+          {isGiphy ? (
+            <div className="mb-2 flex shrink-0 items-center justify-end text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              Powered by GIPHY
+            </div>
+          ) : null}
+          <div className={resultsGridClass}>
+            {displayResults.map((item) => (
+              <MediaSourceResult
+                key={`${provider}-${item.type}-${item.id}`}
+                item={item}
+                provider={provider}
+                viewMode={viewMode}
+                previewMode={previewMode}
+                orientation={orientation}
+                previewCached={previewAssets?.[assetKey(providerId, item)]}
+                cached={cachedAssets?.[assetKey(providerId, item)]}
+                downloadState={downloadStatus?.[assetKey(providerId, item)]}
+                favorite={Boolean(favorites?.[assetKey(providerId, item)])}
+                onDownload={onDownload}
+                onAddCached={onAddCached}
+                onAddDirect={onAddDirect}
+                onToggleFavorite={onToggleFavorite}
+                onCanvasPreview={onCanvasPreview}
+              />
+            ))}
+          </div>
+        </>
       ) : status === "loading" ? (
         <LoadingThumbnailGrid className={resultsGridClass} count={isPortraitGrid ? 12 : 9} portrait={isPortraitGrid} />
       ) : (
@@ -859,6 +966,23 @@ const categoryOptions = [
   { value: "transportation", label: "Transportation", icon: Car }
 ];
 
+const giphyCategoryOptions = [
+  { value: "all", label: "Trending", icon: Flame },
+  { value: "reaction", label: "Reaction", icon: MessageCircle },
+  { value: "meme", label: "Meme", icon: Laugh },
+  { value: "sticker", label: "Sticker", icon: Smile },
+  { value: "happy", label: "Happy", icon: Smile },
+  { value: "celebrate", label: "Celebrate", icon: Star },
+  { value: "love", label: "Love", icon: Heart },
+  { value: "work", label: "Work", icon: BriefcaseBusiness },
+  { value: "music", label: "Music", icon: Music },
+  { value: "sports", label: "Sports", icon: Dumbbell }
+];
+
+function categoryOptionsForProvider(provider) {
+  return provider === "Giphy" ? giphyCategoryOptions : categoryOptions;
+}
+
 const orderOptions = [
   { value: "popular", label: "Popular" },
   { value: "latest", label: "Latest" }
@@ -880,7 +1004,7 @@ const orientationOptions = [
 ];
 
 
-function MediaSourceResult({ item, provider, viewMode, previewMode, orientation, previewCached, cached, downloadState, favorite, onDownload, onAddCached, onToggleFavorite, onCanvasPreview }) {
+function MediaSourceResult({ item, provider, viewMode, previewMode, orientation, previewCached, cached, downloadState, favorite, onDownload, onAddCached, onAddDirect, onToggleFavorite, onCanvasPreview }) {
   const [showZoomPreview, setShowZoomPreview] = useState(false);
   const [zoomAnchor, setZoomAnchor] = useState(null);
   const [imageLoaded, setImageLoaded] = useState(() => loadedThumbnailUrls.has(imageSrcForInitialState(item, previewCached)));
@@ -888,14 +1012,16 @@ function MediaSourceResult({ item, provider, viewMode, previewMode, orientation,
   const [loadedThumbnailSrc, setLoadedThumbnailSrc] = useState("");
   const [zoomSourceIndex, setZoomSourceIndex] = useState(0);
   const zoomButtonRef = useRef(null);
-  const itemUrl = item.pexelsUrl || item.pixabayUrl || item.sourceUrl;
+  const itemUrl = item.pexelsUrl || item.pixabayUrl || item.giphyUrl || item.sourceUrl;
   const author = item.photographer || item.creator || provider;
+  const providerId = provider.toLowerCase();
+  const isGiphy = providerId === "giphy";
   const isTiles = viewMode === "tiles";
-  const isPortraitMedia = orientation === "vertical" || (Number(item.height) > Number(item.width) && Number(item.width) > 0);
-  const thumbnailAspectClass = isTiles ? "h-[92px]" : isPortraitMedia ? "aspect-[3/4]" : "aspect-video";
+  const isPortraitMedia = !isGiphy && (orientation === "vertical" || (Number(item.height) > Number(item.width) && Number(item.width) > 0));
+  const thumbnailAspectClass = isGiphy ? "aspect-square" : isTiles ? "h-[92px]" : isPortraitMedia ? "aspect-[3/4]" : "aspect-video";
+  const thumbnailFitClass = isGiphy ? "object-contain p-1" : "object-cover";
   const previewPopoverClass = isPortraitMedia ? "w-[min(300px,calc(100vw-16px))]" : "w-[min(420px,calc(100vw-16px))]";
   const previewFrameClass = isPortraitMedia ? "aspect-[3/4] max-h-[min(520px,calc(100vh-120px))]" : "h-56";
-  const providerId = provider.toLowerCase();
   const loading = downloadState === "loading";
   const thumbnailSources = uniqueSources([item.previewUrl, item.thumbnailUrl, item.webformatUrl, previewCached?.url, item.url]);
   const thumbnailSourcesKey = thumbnailSources.join("|");
@@ -969,7 +1095,7 @@ function MediaSourceResult({ item, provider, viewMode, previewMode, orientation,
         <img
           src={imageSrc}
           alt=""
-          className={`h-full w-full object-cover transition-opacity duration-150 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+          className={`h-full w-full ${thumbnailFitClass} transition-opacity duration-150 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
           onLoad={markImageLoaded}
           onError={handleImageError}
         />
@@ -1027,17 +1153,28 @@ function MediaSourceResult({ item, provider, viewMode, previewMode, orientation,
                 )
               : null}
           </div>
-          <button
-            type="button"
-            title={favorite ? "Hapus dari favorit" : "Tambah ke favorit"}
-            onClick={() => onToggleFavorite?.(providerId, item)}
-            className={`grid h-7 w-7 place-items-center rounded bg-black/70 backdrop-blur transition-opacity hover:bg-black/85 ${
-              favorite ? "text-yellow-300 opacity-100" : "text-white opacity-0 group-hover:opacity-100"
-            }`}
-          >
-            <Star size={14} fill={favorite ? "currentColor" : "none"} />
-          </button>
-          {cached ? (
+          {!isGiphy ? (
+            <button
+              type="button"
+              title={favorite ? "Hapus dari favorit" : "Tambah ke favorit"}
+              onClick={() => onToggleFavorite?.(providerId, item)}
+              className={`grid h-7 w-7 place-items-center rounded bg-black/70 backdrop-blur transition-opacity hover:bg-black/85 ${
+                favorite ? "text-yellow-300 opacity-100" : "text-white opacity-0 group-hover:opacity-100"
+              }`}
+            >
+              <Star size={14} fill={favorite ? "currentColor" : "none"} />
+            </button>
+          ) : null}
+          {isGiphy ? (
+            <button
+              type="button"
+              title="Tambah ke media library"
+              onClick={() => onAddDirect?.(item)}
+              className="col-start-2 grid h-7 w-7 place-items-center rounded bg-[var(--accent)] text-[#07111f] opacity-0 backdrop-blur transition-opacity hover:bg-[var(--accent-strong)] group-hover:opacity-100"
+            >
+              <Plus size={14} />
+            </button>
+          ) : cached ? (
             <button
               type="button"
               title="Tambah ke timeline"
@@ -1082,6 +1219,7 @@ function sortItems(items, sortOrder) {
 
 const PEXELS_BROWSER_API_KEY = import.meta.env.VITE_PEXELS_API_KEY || "";
 const PIXABAY_BROWSER_API_KEY = import.meta.env.VITE_PIXABAY_API_KEY || "";
+const GIPHY_BROWSER_API_KEY = import.meta.env.VITE_GIPHY_API_KEY || "";
 
 async function searchPexelsProvider(payload) {
   if (window.videmeNative?.pexels?.search) {
@@ -1188,6 +1326,81 @@ function pexelsOrientation(orientation) {
 function pexelsCategoryQuery(category) {
   if (!category || category === "all") return "nature";
   return categoryOptions.find((option) => option.value === category)?.label || category;
+}
+
+function giphyCategoryQuery(category) {
+  if (!category || category === "all") return "";
+  return giphyCategoryOptions.find((option) => option.value === category)?.label || category;
+}
+
+async function searchGiphyProvider(payload) {
+  if (!GIPHY_BROWSER_API_KEY) {
+    return { ok: false, error: "VITE_GIPHY_API_KEY belum dikonfigurasi." };
+  }
+
+  const hasQuery = Boolean(payload.query?.trim());
+  const isSticker = payload.category === "sticker";
+  const endpoint = hasQuery
+    ? `https://api.giphy.com/v1/${isSticker ? "stickers" : "gifs"}/search`
+    : `https://api.giphy.com/v1/${isSticker ? "stickers" : "gifs"}/trending`;
+  const limit = Math.max(1, Math.min(Number(payload.perPage) || 12, 50));
+  const page = Math.max(1, Number(payload.page) || 1);
+  const url = new URL(endpoint);
+  url.searchParams.set("api_key", GIPHY_BROWSER_API_KEY);
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("offset", String((page - 1) * limit));
+  url.searchParams.set("rating", payload.safeSearch === false ? "r" : "pg-13");
+  url.searchParams.set("lang", "id");
+  url.searchParams.set("bundle", isSticker ? "sticker_layering" : "messaging_non_clips");
+  if (hasQuery) url.searchParams.set("q", payload.query.trim().slice(0, 50));
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    return { ok: false, error: `Giphy gagal (${response.status}). ${text}`.trim() };
+  }
+  const data = await response.json();
+  const total = data.pagination?.total_count || 0;
+  const offset = data.pagination?.offset || 0;
+  const count = data.pagination?.count || 0;
+  return {
+    ok: true,
+    kind: "gif",
+    page,
+    perPage: limit,
+    totalResults: total,
+    hasNext: offset + count < total,
+    items: (data.data || []).map(normalizeGiphyResult).filter((item) => item.url)
+  };
+}
+
+function normalizeGiphyResult(item) {
+  const images = item.images || {};
+  const original = images.original || {};
+  const fixedWidth = images.fixed_width || images.downsized_medium || images.downsized || {};
+  const preview = images.fixed_width_small || images.preview_gif || fixedWidth || original;
+  const url = original.webp || original.url || fixedWidth.webp || fixedWidth.url || item.url;
+  const previewUrl = preview.webp || preview.url || fixedWidth.webp || fixedWidth.url || url;
+  const extension = url.includes(".webp") ? "webp" : "gif";
+  return {
+    id: String(item.id),
+    type: "image",
+    name: `Giphy ${item.title || item.id}.${extension}`,
+    url,
+    downloadUrl: url,
+    previewUrl,
+    webformatUrl: fixedWidth.url || previewUrl,
+    previewDownloadUrl: previewUrl,
+    thumbnailUrl: previewUrl,
+    duration: 3,
+    width: Number(original.width || fixedWidth.width || preview.width) || 0,
+    height: Number(original.height || fixedWidth.height || preview.height) || 0,
+    size: Number(original.size || fixedWidth.size || preview.size) || 0,
+    alt: item.title || "",
+    giphyUrl: item.url,
+    creator: item.user?.display_name || item.username || "Giphy",
+    creatorUrl: item.user?.profile_url || item.url || "https://giphy.com"
+  };
 }
 
 async function searchPixabayProvider(payload) {
@@ -1338,7 +1551,8 @@ function fallbackDownloadedItem(key, provider, cached) {
     type,
     name: cached?.name || `${provider} ${id}`,
     pexelsUrl: provider === "pexels" ? "https://www.pexels.com" : null,
-    pixabayUrl: provider === "pixabay" ? "https://pixabay.com" : null
+    pixabayUrl: provider === "pixabay" ? "https://pixabay.com" : null,
+    giphyUrl: provider === "giphy" ? "https://giphy.com" : null
   };
 }
 
@@ -1401,7 +1615,7 @@ async function downloadPreviewToObjectUrl(item) {
 }
 
 function buildOnlineMediaItem(item, provider, cached) {
-  const sourceUrl = provider === "pexels" ? item.pexelsUrl : item.pixabayUrl;
+  const sourceUrl = provider === "pexels" ? item.pexelsUrl : provider === "pixabay" ? item.pixabayUrl : item.giphyUrl;
   const creator = item.photographer || item.creator || provider;
   const creatorUrl = item.photographerUrl || item.creatorUrl || sourceUrl;
   return {

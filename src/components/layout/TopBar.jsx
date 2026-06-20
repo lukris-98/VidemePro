@@ -1,10 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Download, Menu, Share2 } from "lucide-react";
 import vidmeLogo from "../../assets/vidme-logo.png";
-import { usePlaybackStore } from "../../store/playbackStore.js";
 import { useProjectStore } from "../../store/projectStore.js";
 import { useUiStore } from "../../store/uiStore.js";
-import { formatAdaptiveTimecode, parseTimecodeInput } from "../../utils/timeFormat.js";
 import { FFmpegStatusBadge } from "../ui/FFmpegStatusBadge.jsx";
 
 function IconButton({ title, children, onClick, disabled = false }) {
@@ -23,30 +21,25 @@ function IconButton({ title, children, onClick, disabled = false }) {
 
 export function TopBar({ leftWidth = 420, rightWidth = 420 }) {
   const projectName = useProjectStore((state) => state.projectName);
-  const currentTime = usePlaybackStore((state) => state.currentTime);
-  const duration = usePlaybackStore((state) => state.duration);
-  const fps = usePlaybackStore((state) => state.fps);
-  const setCurrentTime = usePlaybackStore((state) => state.setCurrentTime);
+  const setProjectName = useProjectStore((state) => state.setProjectName);
   const openExport = useUiStore((state) => state.openExport);
-  const [editingTimecode, setEditingTimecode] = useState(false);
-  const [timecodeDraft, setTimecodeDraft] = useState("");
-  const inputRef = useRef(null);
-  const displayTimecode = formatAdaptiveTimecode(currentTime, fps);
+  const [editingProjectName, setEditingProjectName] = useState(false);
+  const [projectNameDraft, setProjectNameDraft] = useState(projectName);
+  const projectNameInputRef = useRef(null);
 
   useEffect(() => {
-    if (!editingTimecode) setTimecodeDraft(displayTimecode);
-  }, [displayTimecode, editingTimecode]);
+    if (!editingProjectName) setProjectNameDraft(projectName);
+  }, [editingProjectName, projectName]);
 
   useEffect(() => {
-    if (!editingTimecode) return;
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, [editingTimecode]);
+    if (!editingProjectName) return;
+    projectNameInputRef.current?.focus();
+    projectNameInputRef.current?.select();
+  }, [editingProjectName]);
 
-  const commitTimecode = () => {
-    const nextTime = parseTimecodeInput(timecodeDraft, currentTime, fps);
-    if (nextTime !== null) setCurrentTime(Math.min(nextTime, duration));
-    setEditingTimecode(false);
+  const commitProjectName = () => {
+    setProjectName(projectNameDraft);
+    setEditingProjectName(false);
   };
 
   return (
@@ -57,37 +50,39 @@ export function TopBar({ leftWidth = 420, rightWidth = 420 }) {
       <div className="flex items-center gap-2">
         <img
           src={vidmeLogo}
-          alt="VidemePro+"
+          alt="Vidme Pro"
           className="h-8 w-8 rounded-lg object-cover"
         />
-        <span className="text-sm font-semibold">VidemePro+</span>
+        <span className="text-sm font-semibold">Vidme Pro</span>
         <IconButton title="Menu">
           <Menu size={18} />
         </IconButton>
       </div>
-      <div className="col-start-3 flex items-center justify-center gap-3">
-        <span className="max-w-[180px] truncate text-xs text-[var(--text-muted)]">{projectName}</span>
-        {editingTimecode ? (
+      <div className="col-start-3 flex min-w-0 items-center justify-center">
+        {editingProjectName ? (
           <input
-            ref={inputRef}
-            value={timecodeDraft}
-            onChange={(event) => setTimecodeDraft(event.target.value)}
-            onBlur={commitTimecode}
+            ref={projectNameInputRef}
+            value={projectNameDraft}
+            onChange={(event) => setProjectNameDraft(event.target.value)}
+            onBlur={commitProjectName}
             onKeyDown={(event) => {
-              if (event.key === "Enter") commitTimecode();
-              if (event.key === "Escape") setEditingTimecode(false);
+              if (event.key === "Enter") commitProjectName();
+              if (event.key === "Escape") {
+                setProjectNameDraft(projectName);
+                setEditingProjectName(false);
+              }
             }}
-            className="h-8 w-[150px] rounded-md border border-[var(--accent)] bg-[#121212] px-3 text-center font-mono text-sm text-white outline-none"
-            aria-label="Input timecode"
+            className="h-8 max-w-[240px] rounded-md border border-[var(--accent)] bg-[#121212] px-3 text-center text-xs text-white outline-none"
+            aria-label="Rename project"
           />
         ) : (
           <button
             type="button"
-            onClick={() => setEditingTimecode(true)}
-            className="flex h-8 min-w-[150px] items-center justify-center rounded-md border border-[var(--border)] bg-[#121212] px-4 font-mono text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-            title="Klik untuk lompat ke timecode. Contoh: 1030, +15, 00:00:10:30"
+            onClick={() => setEditingProjectName(true)}
+            className="h-8 max-w-[240px] truncate rounded-md px-3 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-white"
+            title="Klik untuk rename project"
           >
-            {displayTimecode}
+            {projectName}
           </button>
         )}
       </div>

@@ -1,6 +1,6 @@
-# VidemePro+
+# Vidme Pro
 
-VidemePro+ is a modern web and desktop video editor built with React, Vite, Electron, and FFmpeg. The project is designed as a CapCut-style editing workspace with a media library, timeline editing, preview canvas, AI-assisted tools, online stock media search, and export workflows.
+Vidme Pro is a modern web and desktop video editor built with React, Vite, Electron, and FFmpeg. The project is designed as a CapCut-style editing workspace with a media library, timeline editing, preview canvas, AI-assisted tools, online stock media search, and export workflows.
 
 The app can run in the browser during development and can also be packaged as a Windows portable `.exe` with Electron.
 
@@ -106,7 +106,7 @@ API keys are intentionally not committed to the repository. Use `.env.local` for
 
 ## Current Status
 
-VidemePro+ is an active editor prototype. The current focus is improving the media sourcing workflow, stock asset integration, preview experience, timeline ergonomics, and desktop/browser parity.
+Vidme Pro is an active editor prototype. The current focus is improving the media sourcing workflow, stock asset integration, preview experience, timeline ergonomics, and desktop/browser parity.
 
 ## License
 
