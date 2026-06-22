@@ -1,0 +1,54 @@
+name: Archive version
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    name: Create downloadable snapshot
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows portable package
+        run: npm run dist:win
+
+      - name: Create snapshot tag
+        shell: pwsh
+        run: |
+          $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+          $shortSha = "${env:GITHUB_SHA}".Substring(0, 7)
+          $tag = "snapshot-$timestamp-$shortSha"
+          "SNAPSHOT_TAG=$tag" >> $env:GITHUB_ENV
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag $tag
+          git push origin $tag
+
+      - name: Publish GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.SNAPSHOT_TAG }}
+          name: Vidme Pro ${{ env.SNAPSHOT_TAG }}
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            release/*
