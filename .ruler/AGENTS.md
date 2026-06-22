@@ -1,5 +1,6 @@
-# AGENTS.md
+# Project VidemePro+
 
-Centralised AI agent instructions. Add coding guidelines, style guides, and project context here.
-
-Ruler concatenates all .md files in this directory (and subdirectories), starting with AGENTS.md (if present), then remaining files in sorted order.
+- Gunakan Bahasa Indonesia untuk penjelasan.
+- Jangan ubah UI tanpa menjaga style Tailwind yang sudah ada.
+- Jalankan npm run build sebelum selesai jika mengubah kode.
+- Fokus fitur video editor berbasis React + Electron.

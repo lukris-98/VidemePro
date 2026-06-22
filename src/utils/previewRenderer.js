@@ -1,10 +1,11 @@
 import { getTextAnimation } from "./animationPresets.js";
 import { applyAutoReframe, applyBackgroundRemove, applyFaceBlur } from "./aiEffects.js";
 import { applyColorData, buildCSSFilter, drawVignette, drawWithTransform } from "./visualEffects.js";
+import { drawShapeClip } from "./shapeLibrary.js";
 
 const imageCache = new Map();
 
-export function renderPreviewFrame(ctx, canvas, { time, tracks, mediaItems, videoElement, imageElement, previewMedia }) {
+export function renderPreviewFrame(ctx, canvas, { time, tracks, mediaItems, videoElement, imageElement, previewMedia, audioPreviewTime = 0, audioPreviewDuration = 0 }) {
   const width = canvas.width;
   const height = canvas.height;
   ctx.clearRect(0, 0, width, height);
@@ -13,11 +14,11 @@ export function renderPreviewFrame(ctx, canvas, { time, tracks, mediaItems, vide
 
   const hasTimelineContent = tracks.some((track) => track.clips.length);
   if (previewMedia) {
-    renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imageElement);
+    renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imageElement, audioPreviewTime, audioPreviewDuration);
   } else if (hasTimelineContent) {
     renderTimeline(ctx, width, height, time, tracks, mediaItems, videoElement);
   } else {
-    renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imageElement);
+    renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imageElement, audioPreviewTime, audioPreviewDuration);
   }
 
   ctx.fillStyle = "rgba(255,255,255,0.75)";
@@ -28,9 +29,9 @@ export function renderPreviewFrame(ctx, canvas, { time, tracks, mediaItems, vide
 
 export function getActiveTextClips(tracks, time) {
   return tracks
-    .filter((track) => track.type === "text" && !track.muted)
+    .filter((track) => !track.muted && track.visible !== false)
     .flatMap((track) => track.clips)
-    .filter((clip) => time >= clip.start && time <= clip.end);
+    .filter((clip) => clip.type === "text" && time >= clip.start && time <= clip.end);
 }
 
 function renderTimeline(ctx, width, height, time, tracks, mediaItems, videoElement) {
@@ -48,12 +49,15 @@ function renderTimeline(ctx, width, height, time, tracks, mediaItems, videoEleme
   for (const clip of getActiveTextClips(visualTracks, time)) {
     drawTextClip(ctx, width, height, clip, time);
   }
+  for (const clip of getActiveShapeClips(visualTracks, time)) {
+    drawShapeClip(ctx, width, height, clip, time);
+  }
   for (const clip of getActiveStickerClips(visualTracks, time)) {
     drawStickerClip(ctx, width, height, clip, time);
   }
 }
 
-function renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imageElement) {
+function renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imageElement, audioPreviewTime = 0, audioPreviewDuration = 0) {
   if (previewMedia?.type === "video" && videoElement?.readyState >= 2) {
     drawContained(ctx, videoElement, width, height, previewMedia);
   } else if (previewMedia?.type === "image" || previewMedia?.type === "photo") {
@@ -61,15 +65,9 @@ function renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imag
       drawContained(ctx, imageElement, width, height, previewMedia);
     }
   } else if (previewMedia?.type === "audio") {
-    ctx.fillStyle = "#101820";
+    ctx.fillStyle = "#0b0f12";
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "#4d9eff";
-    ctx.font = "24px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("Audio Preview", width / 2, height / 2 - 8);
-    ctx.fillStyle = "#cccccc";
-    ctx.font = "14px Arial";
-    ctx.fillText(previewMedia.name, width / 2, height / 2 + 22);
+    drawAudioWaveformPreview(ctx, width, height, previewMedia, audioPreviewTime, audioPreviewDuration);
   } else {
     ctx.fillStyle = "#111";
     ctx.fillRect(0, 0, width, height);
@@ -83,6 +81,68 @@ function renderPreviewMedia(ctx, width, height, previewMedia, videoElement, imag
     ctx.fillStyle = "#777";
     ctx.fillText("Import media untuk mulai melihat frame", width / 2, height / 2 + 28);
   }
+}
+
+function drawAudioWaveformPreview(ctx, width, height, media, currentTime = 0, duration = 0) {
+  const bars = Array.isArray(media.waveformData) && media.waveformData.length
+    ? media.waveformData
+    : Array.from({ length: 96 }, (_, index) => 0.18 + Math.abs(Math.sin(index * 0.47)) * 0.72);
+  const padX = Math.max(28, width * 0.08);
+  const waveWidth = Math.max(80, width - padX * 2);
+  const centerY = height * 0.48;
+  const maxBarHeight = Math.max(36, height * 0.34);
+  const barGap = Math.max(2, (waveWidth / bars.length) * 0.32);
+  const barWidth = Math.max(2, waveWidth / bars.length - barGap);
+  const gradient = ctx.createLinearGradient(padX, centerY - maxBarHeight, padX + waveWidth, centerY + maxBarHeight);
+  gradient.addColorStop(0, "#1ed760");
+  gradient.addColorStop(0.55, "#4d9eff");
+  gradient.addColorStop(1, "#9b5cff");
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.beginPath();
+  ctx.moveTo(padX, centerY);
+  ctx.lineTo(padX + waveWidth, centerY);
+  ctx.stroke();
+  ctx.fillStyle = gradient;
+  bars.forEach((value, index) => {
+    const normalized = Math.max(0.06, Math.min(1, Number(value) || 0));
+    const x = padX + index * (barWidth + barGap);
+    const barHeight = normalized * maxBarHeight;
+    ctx.fillRect(x, centerY - barHeight / 2, barWidth, barHeight);
+  });
+  const totalDuration = Math.max(0.01, Number(duration) || Number(media.duration) || 0.01);
+  const progress = Math.max(0, Math.min(1, (Number(currentTime) || 0) / totalDuration));
+  const playheadX = padX + waveWidth * progress;
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(playheadX, centerY - maxBarHeight / 2 - 18);
+  ctx.lineTo(playheadX, centerY + maxBarHeight / 2 + 18);
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(playheadX, centerY + maxBarHeight / 2 + 22, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.16)";
+  ctx.fillRect(padX, centerY + maxBarHeight / 2 + 31, waveWidth, 4);
+  ctx.fillStyle = "#4d9eff";
+  ctx.fillRect(padX, centerY + maxBarHeight / 2 + 31, waveWidth * progress, 4);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 15px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(media.metadata?.title || media.name || "Audio", width / 2, Math.min(height - 46, centerY + maxBarHeight / 2 + 34));
+  ctx.fillStyle = "rgba(255,255,255,0.62)";
+  ctx.font = "12px Arial";
+  ctx.fillText(`${formatPreviewDuration(media.duration)} - ${media.metadata?.source || "audio"}`, width / 2, Math.min(height - 26, centerY + maxBarHeight / 2 + 54));
+  ctx.restore();
+}
+
+function formatPreviewDuration(seconds) {
+  const value = Number(seconds) || 0;
+  const minutes = Math.floor(value / 60);
+  const rest = Math.floor(value % 60);
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
 function drawClipFrame(ctx, width, height, clip, mediaItems, videoElement, time, alpha = 1, offsetX = 0) {
@@ -137,28 +197,98 @@ function drawTextClip(ctx, width, height, clip, time) {
   const displayText = anim.visibleChars !== undefined ? (clip.text || "").slice(0, anim.visibleChars) : clip.text || "";
 
   ctx.save();
-  ctx.globalAlpha = anim.opacity ?? 1;
+  ctx.globalAlpha = (anim.opacity ?? 1) * (clip.opacity ?? 1);
   ctx.translate(x, y);
+  ctx.rotate(((clip.rotation ?? 0) * Math.PI) / 180);
   ctx.scale(anim.scale ?? 1, anim.scale ?? 1);
-  ctx.font = `${clip.fontWeight ?? "bold"} ${clip.fontSize ?? 48}px ${clip.fontFamily ?? "Arial"}`;
+  const fontSize = clip.fontSize ?? 48;
+  const fontFamily = clip.fontFamily ?? "Arial";
+  const fontWeight = clip.fontWeight ?? "bold";
+  const letterSpacing = clip.letterSpacing ?? 0;
+  ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
   ctx.fillStyle = clip.color ?? "#ffffff";
   ctx.textAlign = clip.align ?? "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.shadowColor = clip.shadowColor ?? "transparent";
+  ctx.shadowBlur = clip.shadowBlur ?? 0;
+  ctx.shadowOffsetX = clip.shadowOffsetX ?? 0;
+  ctx.shadowOffsetY = clip.shadowOffsetY ?? 0;
+  if (Number.isFinite(clip.shadowOpacity) && clip.shadowColor && clip.shadowColor !== "transparent") {
+    ctx.shadowColor = colorWithAlpha(clip.shadowColor, clip.shadowOpacity);
+  }
+  const textWidth = measureSpacedText(ctx, displayText, letterSpacing);
   if (clip.backgroundColor && clip.backgroundColor !== "transparent") {
-    const metrics = ctx.measureText(displayText);
     const padding = clip.padding ?? 8;
+    const alignOffset = textAlignOffset(ctx.textAlign, textWidth);
+    ctx.save();
+    ctx.shadowColor = "transparent";
     ctx.fillStyle = clip.backgroundColor;
-    ctx.fillRect(-metrics.width / 2 - padding, -(clip.fontSize ?? 48), metrics.width + padding * 2, (clip.fontSize ?? 48) + padding * 2);
+    ctx.fillRect(alignOffset - padding, -fontSize, textWidth + padding * 2, fontSize + padding * 2);
+    ctx.restore();
     ctx.fillStyle = clip.color ?? "#ffffff";
   }
-  ctx.fillText(displayText, 0, 0);
+  if ((clip.strokeWidth ?? 0) > 0) {
+    ctx.strokeStyle = clip.stroke ?? "#000000";
+    ctx.lineWidth = clip.strokeWidth;
+    ctx.lineJoin = "round";
+    drawSpacedText(ctx, displayText, 0, 0, letterSpacing, true);
+  }
+  drawSpacedText(ctx, displayText, 0, 0, letterSpacing, false);
   ctx.restore();
+}
+
+function measureSpacedText(ctx, text, letterSpacing = 0) {
+  if (!letterSpacing || text.length < 2) return ctx.measureText(text).width;
+  return [...text].reduce((total, character, index, characters) => total + ctx.measureText(character).width + (index < characters.length - 1 ? letterSpacing : 0), 0);
+}
+
+function textAlignOffset(align, width) {
+  if (align === "left" || align === "start") return 0;
+  if (align === "right" || align === "end") return -width;
+  return -width / 2;
+}
+
+function drawSpacedText(ctx, text, x, y, letterSpacing, stroke) {
+  if (!letterSpacing || text.length < 2) {
+    if (stroke) ctx.strokeText(text, x, y);
+    else ctx.fillText(text, x, y);
+    return;
+  }
+  const totalWidth = measureSpacedText(ctx, text, letterSpacing);
+  let cursor = x + textAlignOffset(ctx.textAlign, totalWidth);
+  ctx.save();
+  ctx.textAlign = "left";
+  for (const character of text) {
+    if (stroke) ctx.strokeText(character, cursor, y);
+    else ctx.fillText(character, cursor, y);
+    cursor += ctx.measureText(character).width + letterSpacing;
+  }
+  ctx.restore();
+}
+
+function colorWithAlpha(color, alpha) {
+  const safeAlpha = Math.max(0, Math.min(1, Number(alpha) || 0));
+  if (/^#[0-9a-f]{6}$/i.test(color)) {
+    const red = Number.parseInt(color.slice(1, 3), 16);
+    const green = Number.parseInt(color.slice(3, 5), 16);
+    const blue = Number.parseInt(color.slice(5, 7), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${safeAlpha})`;
+  }
+  return color;
 }
 
 export function getActiveStickerClips(tracks, time) {
   return tracks
     .filter((track) => track.type === "overlay" && !track.muted)
     .flatMap((track) => track.clips)
-    .filter((clip) => time >= clip.start && time <= clip.end);
+    .filter((clip) => clip.type !== "shape" && clip.type !== "text" && time >= clip.start && time <= clip.end);
+}
+
+export function getActiveShapeClips(tracks, time) {
+  return tracks
+    .filter((track) => track.type === "overlay" && !track.muted)
+    .flatMap((track) => track.clips)
+    .filter((clip) => clip.type === "shape" && time >= clip.start && time <= clip.end);
 }
 
 function drawStickerClip(ctx, width, height, clip, time) {

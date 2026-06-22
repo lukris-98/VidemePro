@@ -24,7 +24,11 @@ export const TrackLane = memo(function TrackLane({ track, pixelsPerSecond, width
       {track.role === "main" ? <MainTrackGaps clips={track.clips} pixelsPerSecond={pixelsPerSecond} height={height} /> : null}
       {ghost?.trackId === track.id ? (
         <div
-          className="pointer-events-none absolute top-2 z-10 rounded-md border border-[var(--accent)] bg-[var(--accent)]/30"
+          className={`pointer-events-none absolute top-2 z-10 rounded-md border ${
+            ghost.kind === "text"
+              ? "animate-pulse border-[var(--clip-text)] bg-[var(--clip-text)]/30 shadow-[0_0_14px_rgba(241,201,76,0.28)]"
+              : "border-[var(--accent)] bg-[var(--accent)]/30"
+          }`}
           style={{
             left: ghost.start * pixelsPerSecond,
             width: Math.max(24, ghost.duration * pixelsPerSecond),

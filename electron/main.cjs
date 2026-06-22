@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs/promises");
 const os = require("os");
@@ -13,16 +13,171 @@ const APIFRAME_API_BASE = "https://api.apiframe.ai/v2";
 const APIFRAME_KEYS_FILE = "apiframe-keys.json";
 const OPENROUTER_API_BASE = "https://openrouter.ai/api/v1";
 const OPENROUTER_KEYS_FILE = "openrouter-keys.json";
+const DEFAULT_VIDME_ROOT_DIR = "C:\\Vidme Pro";
+let vidmeRootDir = DEFAULT_VIDME_ROOT_DIR;
 
 // Map of active transcoding processes: jobId -> child process
 const activeJobs = new Map();
 let runtimeApiframeKeys = [];
 let runtimeOpenrouterKeys = [];
 
+function normalizeVidmeRootDir(dir) {
+  const value = String(dir || "").trim().replace(/^["']|["']$/g, "");
+  return value ? path.resolve(value) : DEFAULT_VIDME_ROOT_DIR;
+}
+
+function getVidmeRootDir() {
+  return vidmeRootDir;
+}
+
+function getSettingsPath() {
+  return path.join(app.getPath("userData"), "settings.json");
+}
+
+function getUnifiedApiKeyDir() {
+  return path.join(getVidmeRootDir(), "API KEY");
+}
+
+function getUnifiedApiKeyFile() {
+  return path.join(getUnifiedApiKeyDir(), "API KEY.txt");
+}
+
+function getOldUnifiedApiKeyFile() {
+  return path.join(getVidmeRootDir(), "API KEY.txt");
+}
+
+function getAutoFillDir() {
+  return path.join(getVidmeRootDir(), "AUTO FILL");
+}
+
+function getAutoFillFile() {
+  return path.join(getAutoFillDir(), "AUTO FILL.txt");
+}
+
+function getOldAutoFillFile() {
+  return path.join(getVidmeRootDir(), "AUTO FILL.txt");
+}
+
 function maskApiKey(key) {
   if (!key) return "";
   if (key.length <= 12) return `${key.slice(0, 3)}...${key.slice(-3)}`;
   return `${key.slice(0, 7)}...${key.slice(-4)}`;
+}
+
+async function pathExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function copyMergeDirectory(from, to) {
+  const entries = await fs.readdir(from, { withFileTypes: true }).catch(() => []);
+  await fs.mkdir(to, { recursive: true });
+  for (const entry of entries) {
+    const source = path.join(from, entry.name);
+    const target = path.join(to, entry.name);
+    if (entry.isDirectory()) await copyMergeDirectory(source, target);
+    else if (!(await pathExists(target))) await fs.copyFile(source, target);
+  }
+}
+
+async function mergeAndRemoveDirectory(from, to) {
+  if (!(await pathExists(from))) return;
+  await copyMergeDirectory(from, to);
+  await fs.rm(from, { recursive: true, force: true });
+}
+
+async function renameDirectoryPretty(parent, fromName, toName) {
+  const from = path.join(parent, fromName);
+  const to = path.join(parent, toName);
+  if (!(await pathExists(from))) return;
+  if (from.toLowerCase() === to.toLowerCase()) {
+    if (fromName === toName) return;
+    const tmp = path.join(parent, `${toName}.__vidme_tmp__${Date.now()}`);
+    await fs.rename(from, tmp);
+    await fs.rename(tmp, to);
+    return;
+  }
+  if (await pathExists(to)) await mergeAndRemoveDirectory(from, to);
+  else await fs.rename(from, to);
+}
+
+async function normalizeMediaFolders() {
+  const mediaRoot = path.join(getVidmeRootDir(), "Media");
+  const mediaEntries = await fs.readdir(mediaRoot, { withFileTypes: true }).catch(() => []);
+  for (const entry of mediaEntries) {
+    if (!entry.isDirectory()) continue;
+    const prettyProvider = providerFolderName(entry.name);
+    await renameDirectoryPretty(mediaRoot, entry.name, prettyProvider);
+    const providerDir = path.join(mediaRoot, prettyProvider);
+    const typeEntries = await fs.readdir(providerDir, { withFileTypes: true }).catch(() => []);
+    for (const typeEntry of typeEntries) {
+      if (!typeEntry.isDirectory()) continue;
+      const lower = typeEntry.name.toLowerCase();
+      if (["image", "images", "gambar", "photo", "photos"].includes(lower)) {
+        await renameDirectoryPretty(providerDir, typeEntry.name, "Gambar");
+      } else if (["video", "videos"].includes(lower)) {
+        await renameDirectoryPretty(providerDir, typeEntry.name, "Video");
+      }
+    }
+  }
+}
+
+async function moveVidmeRoot(fromRoot, toRoot) {
+  const from = normalizeVidmeRootDir(fromRoot);
+  const to = normalizeVidmeRootDir(toRoot);
+  if (from.toLowerCase() === to.toLowerCase()) return { moved: false };
+  if (to.toLowerCase().startsWith(`${from.toLowerCase()}\\`)) {
+    throw new Error("Lokasi baru tidak boleh berada di dalam folder lama.");
+  }
+  if (!(await pathExists(from))) {
+    await fs.mkdir(to, { recursive: true });
+    return { moved: false };
+  }
+  await fs.mkdir(path.dirname(to), { recursive: true });
+  try {
+    await fs.rename(from, to);
+    return { moved: true };
+  } catch {
+    await copyMergeDirectory(from, to);
+    await fs.rm(from, { recursive: true, force: true });
+    return { moved: true };
+  }
+}
+
+async function loadVidmeSettings() {
+  try {
+    const parsed = JSON.parse(await fs.readFile(getSettingsPath(), "utf8"));
+    vidmeRootDir = normalizeVidmeRootDir(parsed?.rootDir || DEFAULT_VIDME_ROOT_DIR);
+  } catch {
+    vidmeRootDir = DEFAULT_VIDME_ROOT_DIR;
+  }
+  return { ok: true, rootDir: vidmeRootDir, defaultRootDir: DEFAULT_VIDME_ROOT_DIR, settingsFile: getSettingsPath() };
+}
+
+async function saveVidmeSettings(payload = {}) {
+  const previous = (await loadVidmeSettings()).rootDir;
+  const next = normalizeVidmeRootDir(payload.rootDir);
+  const move = await moveVidmeRoot(previous, next);
+  vidmeRootDir = next;
+  await fs.mkdir(path.dirname(getSettingsPath()), { recursive: true });
+  await fs.writeFile(getSettingsPath(), JSON.stringify({ rootDir: vidmeRootDir }, null, 2), "utf8");
+  await migrateAutoFillHistory();
+  return { ok: true, rootDir: vidmeRootDir, defaultRootDir: DEFAULT_VIDME_ROOT_DIR, settingsFile: getSettingsPath(), moved: move.moved };
+}
+
+async function browseVidmeRootFolder() {
+  const current = (await loadVidmeSettings()).rootDir;
+  const result = await dialog.showOpenDialog({
+    title: "Pilih folder root Vidme Pro",
+    defaultPath: current,
+    properties: ["openDirectory", "createDirectory"]
+  });
+  if (result.canceled || !result.filePaths?.[0]) return { ok: false, cancelled: true, rootDir: current };
+  return saveVidmeSettings({ rootDir: result.filePaths[0] });
 }
 
 function getApiframeKeyPath() {
@@ -33,6 +188,117 @@ function getOpenrouterKeyPath() {
   return path.join(app.getPath("userData"), OPENROUTER_KEYS_FILE);
 }
 
+function normalizeKeyList(keys = []) {
+  return [...new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))];
+}
+
+function parseUnifiedApiKeyText(text = "") {
+  const result = { apiframe: [], openrouter: [] };
+  let section = "";
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (/^\[.*\]$/.test(line)) {
+      section = line.toLowerCase();
+      continue;
+    }
+    if (section.includes("apiframe") || section.includes("music")) result.apiframe.push(line);
+    if (section.includes("openrouter") || section.includes("auto")) result.openrouter.push(line);
+  }
+  return { apiframe: normalizeKeyList(result.apiframe), openrouter: normalizeKeyList(result.openrouter) };
+}
+
+function formatUnifiedApiKeyFile({ apiframe = [], openrouter = [] } = {}) {
+  return [
+    "# Vidme Pro API KEY.txt",
+    "# Auto-updated by Vidme Pro. One API key per line.",
+    `# Location: ${getUnifiedApiKeyFile()}`,
+    "",
+    "[MUSIC AI CREATOR - APIFRAME]",
+    ...normalizeKeyList(apiframe),
+    "",
+    "[AI AUTO FILL - OPENROUTER]",
+    ...normalizeKeyList(openrouter),
+    ""
+  ].join("\r\n");
+}
+
+async function readUnifiedApiKeys() {
+  await loadVidmeSettings();
+  let current = { apiframe: [], openrouter: [] };
+  try {
+    current = parseUnifiedApiKeyText(await fs.readFile(getUnifiedApiKeyFile(), "utf8"));
+  } catch {}
+  try {
+    const old = parseUnifiedApiKeyText(await fs.readFile(getOldUnifiedApiKeyFile(), "utf8"));
+    return { apiframe: normalizeKeyList([...current.apiframe, ...old.apiframe]), openrouter: normalizeKeyList([...current.openrouter, ...old.openrouter]) };
+  } catch {
+    return current;
+  }
+}
+
+async function saveUnifiedApiKeyFile() {
+  await loadVidmeSettings();
+  await fs.mkdir(getUnifiedApiKeyDir(), { recursive: true });
+  await fs.writeFile(getUnifiedApiKeyFile(), formatUnifiedApiKeyFile({ apiframe: runtimeApiframeKeys, openrouter: runtimeOpenrouterKeys }), "utf8");
+  return { ok: true, path: getUnifiedApiKeyFile(), apiframe: runtimeApiframeKeys, openrouter: runtimeOpenrouterKeys };
+}
+
+function normalizeAutoFillItems(items = []) {
+  return Array.isArray(items)
+    ? items
+        .filter(Boolean)
+        .map((item) => ({
+          id: String(item.id || `${Date.now()}-${Math.random()}`),
+          type: item.type === "instrumental" ? "instrumental" : "vocal",
+          title: String(item.title || "").slice(0, 80),
+          lyrics: String(item.lyrics || "").slice(0, 5000),
+          description: String(item.description || item.style || "").slice(0, 1000),
+          idea: String(item.idea || "").slice(0, 1000),
+          model: String(item.model || ""),
+          createdAt: Number(item.createdAt) || Date.now()
+        }))
+    : [];
+}
+
+async function readAutoFillHistory() {
+  await loadVidmeSettings();
+  try {
+    const parsed = JSON.parse(await fs.readFile(getAutoFillFile(), "utf8"));
+    const current = normalizeAutoFillItems(parsed?.items || parsed);
+    try {
+      const oldParsed = JSON.parse(await fs.readFile(getOldAutoFillFile(), "utf8"));
+      return normalizeAutoFillItems([...current, ...(oldParsed?.items || oldParsed)]);
+    } catch {
+      return current;
+    }
+  } catch {
+    try {
+      const oldParsed = JSON.parse(await fs.readFile(getOldAutoFillFile(), "utf8"));
+      return normalizeAutoFillItems(oldParsed?.items || oldParsed);
+    } catch {
+      return [];
+    }
+  }
+}
+
+async function saveAutoFillHistory(payload = {}) {
+  await loadVidmeSettings();
+  const items = normalizeAutoFillItems(payload.items || []).sort((a, b) => b.createdAt - a.createdAt).slice(0, 300);
+  await fs.mkdir(getAutoFillDir(), { recursive: true });
+  await fs.writeFile(getAutoFillFile(), JSON.stringify({ items }, null, 2), "utf8");
+  return { ok: true, path: getAutoFillFile(), items };
+}
+
+async function migrateAutoFillHistory() {
+  const oldPath = getOldAutoFillFile();
+  if (!(await pathExists(oldPath))) return;
+  const items = await readAutoFillHistory();
+  await fs.mkdir(getAutoFillDir(), { recursive: true });
+  await fs.writeFile(getAutoFillFile(), JSON.stringify({ items }, null, 2), "utf8");
+  await fs.rm(oldPath, { force: true }).catch(() => {});
+}
+
 async function loadStoredApiframeKeys() {
   try {
     const raw = await fs.readFile(getApiframeKeyPath(), "utf8");
@@ -41,10 +307,13 @@ async function loadStoredApiframeKeys() {
   } catch {
     runtimeApiframeKeys = [];
   }
+  const unified = await readUnifiedApiKeys();
+  runtimeApiframeKeys = normalizeKeyList([...runtimeApiframeKeys, ...unified.apiframe]);
 }
 
 async function saveStoredApiframeKeys() {
   await fs.writeFile(getApiframeKeyPath(), JSON.stringify({ keys: runtimeApiframeKeys }, null, 2), "utf8");
+  await saveUnifiedApiKeyFile();
 }
 
 async function loadStoredOpenrouterKeys() {
@@ -55,10 +324,13 @@ async function loadStoredOpenrouterKeys() {
   } catch {
     runtimeOpenrouterKeys = [];
   }
+  const unified = await readUnifiedApiKeys();
+  runtimeOpenrouterKeys = normalizeKeyList([...runtimeOpenrouterKeys, ...unified.openrouter]);
 }
 
 async function saveStoredOpenrouterKeys() {
   await fs.writeFile(getOpenrouterKeyPath(), JSON.stringify({ keys: runtimeOpenrouterKeys }, null, 2), "utf8");
+  await saveUnifiedApiKeyFile();
 }
 
 function getAllApiframeKeys() {
@@ -98,6 +370,8 @@ async function getApiframeUserInfo(apiKey) {
 }
 
 async function listApiframeKeys({ checkCredits = false } = {}) {
+  const unified = await readUnifiedApiKeys();
+  runtimeApiframeKeys = normalizeKeyList([...runtimeApiframeKeys, ...unified.apiframe]);
   const keys = getAllApiframeKeys();
   const entries = keys.map((key, index) => ({
     id: key,
@@ -266,6 +540,18 @@ function sanitizeFilename(name, fallback = "asset") {
   return clean || fallback;
 }
 
+function providerFolderName(provider) {
+  const clean = sanitizeFilename(provider, "Remote").toLowerCase();
+  if (clean === "pexels") return "Pexels";
+  if (clean === "pixabay") return "Pixabay";
+  if (clean === "giphy") return "Giphy";
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+function mediaTypeFolderName(type) {
+  return String(type || "").toLowerCase() === "video" || String(type || "").toLowerCase() === "videos" ? "Video" : "Gambar";
+}
+
 function guessExtensionFromUrl(url, fallback) {
   try {
     const parsed = new URL(url);
@@ -282,16 +568,18 @@ function guessExtensionFromName(name) {
 }
 
 async function downloadRemoteAsset(payload = {}) {
+  await loadVidmeSettings();
+  await normalizeMediaFolders();
   const url = String(payload.url || "").trim();
   if (!/^https?:\/\//i.test(url)) return { ok: false, error: "URL asset tidak valid." };
-  const provider = sanitizeFilename(payload.provider || "remote").toLowerCase();
+  const provider = providerFolderName(payload.provider || "remote");
   const type = payload.type === "video" ? "videos" : "images";
   const fallbackExt = payload.type === "video" ? "mp4" : "jpg";
   const nameExt = guessExtensionFromName(payload.name);
   const ext = guessExtensionFromUrl(url, nameExt || fallbackExt);
   const baseName = sanitizeFilename(payload.name || `${provider}-${Date.now()}.${ext}`);
   const fileName = guessExtensionFromName(baseName) ? baseName : `${baseName}.${ext}`;
-  const targetDir = path.join(app.getPath("userData"), "cache", "media", provider, type);
+  const targetDir = path.join(getVidmeRootDir(), "Media", provider, mediaTypeFolderName(type));
   await fs.mkdir(targetDir, { recursive: true });
   const targetPath = path.join(targetDir, fileName);
 
@@ -309,6 +597,39 @@ async function downloadRemoteAsset(payload = {}) {
     size: buffer.byteLength,
     name: fileName
   };
+}
+
+async function listDownloadedAssets(payload = {}) {
+  await loadVidmeSettings();
+  await normalizeMediaFolders();
+  const provider = providerFolderName(payload.provider || "remote");
+  const providerDir = path.join(getVidmeRootDir(), "Media", provider);
+  const folders = [
+    { dir: path.join(providerDir, "Gambar"), type: "image" },
+    { dir: path.join(providerDir, "Video"), type: "video" }
+  ];
+  const items = [];
+  for (const folder of folders) {
+    const entries = await fs.readdir(folder.dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const filePath = path.join(folder.dir, entry.name);
+      const stat = await fs.stat(filePath).catch(() => null);
+      if (!stat) continue;
+      const parsed = path.parse(entry.name);
+      items.push({
+        id: `${provider.toLowerCase()}-${folder.type}-${parsed.name}`,
+        type: folder.type,
+        name: entry.name,
+        path: filePath,
+        url: pathToFileURL(filePath).href,
+        size: stat.size,
+        mtimeMs: stat.mtimeMs
+      });
+    }
+  }
+  items.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return { ok: true, provider, items };
 }
 
 function normalizePexelsVideo(video) {
@@ -548,28 +869,46 @@ async function getSpotifyTrackLyrics(payload = {}) {
   }
 }
 
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const text = await response.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { raw: text };
+    }
+    return { ok: response.ok, status: response.status, data, text };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      text: error instanceof Error && error.name === "AbortError" ? `Request timeout setelah ${Math.round(timeoutMs / 1000)} detik.` : error instanceof Error ? error.message : "Request gagal."
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function apiframeRequest(pathname, options = {}) {
   const apiKey = getActiveApiframeKey();
   if (!apiKey) return { ok: false, error: "Belum ada Apiframe API Key terhubung." };
-  const response = await fetch(`${APIFRAME_API_BASE}${pathname}`, {
+  const result = await fetchJsonWithTimeout(`${APIFRAME_API_BASE}${pathname}`, {
     ...options,
     headers: {
       "X-API-Key": apiKey,
       "Content-Type": "application/json",
       ...(options.headers || {})
     }
-  });
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { raw: text };
+  }, 35000);
+  if (!result.ok) {
+    return { ok: false, status: result.status, error: result.data?.error || result.text || "Apiframe request gagal.", details: result.data?.details || null };
   }
-  if (!response.ok) {
-    return { ok: false, status: response.status, error: data?.error || text || "Apiframe request gagal.", details: data?.details || null };
-  }
-  return { ok: true, data };
+  return { ok: true, data: result.data };
 }
 
 async function generateApiframeMusic(payload = {}) {
@@ -614,6 +953,8 @@ async function getOpenrouterKeyInfo(apiKey) {
 }
 
 async function listOpenrouterKeys({ checkCredits = false } = {}) {
+  const unified = await readUnifiedApiKeys();
+  runtimeOpenrouterKeys = normalizeKeyList([...runtimeOpenrouterKeys, ...unified.openrouter]);
   const keys = getAllOpenrouterKeys();
   const entries = keys.map((key, index) => ({
     id: key,
@@ -678,12 +1019,54 @@ async function removeOpenrouterKey(payload = {}) {
   return { ok: true, keys: await listOpenrouterKeys({ checkCredits: true }) };
 }
 
+function sanitizeGeneratedName(name, fallback) {
+  const cleaned = String(name || fallback || "generated-audio")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || fallback || "generated-audio";
+}
+
+async function saveGeneratedAsset(payload = {}) {
+  await loadVidmeSettings();
+  const rawKind = String(payload.kind || "audio").toLowerCase();
+  const kind = rawKind === "music" ? "music" : rawKind === "voice-clone" ? "voice-clone" : "voice";
+  const bytes = payload.bytes;
+  if (!bytes?.length) return { ok: false, error: "Data file kosong." };
+  const filename = sanitizeGeneratedName(payload.filename, `${kind}-${Date.now()}.wav`);
+  const folderParts = kind === "music" ? ["MUSIC"] : kind === "voice-clone" ? ["VOICE", "Clone"] : ["VOICE", "General"];
+  const targetDir = path.join(getVidmeRootDir(), ...folderParts);
+  await fs.mkdir(targetDir, { recursive: true });
+  let targetPath = path.join(targetDir, filename);
+  const parsed = path.parse(targetPath);
+  let counter = 1;
+  while (true) {
+    try {
+      await fs.access(targetPath);
+      targetPath = path.join(parsed.dir, `${parsed.name}-${counter}${parsed.ext}`);
+      counter += 1;
+    } catch {
+      break;
+    }
+  }
+  const buffer = Buffer.from(bytes);
+  await fs.writeFile(targetPath, buffer);
+  return {
+    ok: true,
+    path: targetPath,
+    url: pathToFileURL(targetPath).href,
+    name: path.basename(targetPath),
+    size: buffer.byteLength,
+    folder: targetDir
+  };
+}
+
 async function completeOpenrouterChat(payload = {}) {
   const apiKey = getActiveOpenrouterKey();
   if (!apiKey) return { ok: false, error: "Belum ada OpenRouter API Key terhubung." };
   const messages = Array.isArray(payload.messages) ? payload.messages : [];
   if (!messages.length) return { ok: false, error: "Prompt Auto Fill masih kosong." };
-  const response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
+  const result = await fetchJsonWithTimeout(`${OPENROUTER_API_BASE}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -697,16 +1080,9 @@ async function completeOpenrouterChat(payload = {}) {
       temperature: Number.isFinite(payload.temperature) ? payload.temperature : 0.7,
       response_format: { type: "json_object" }
     })
-  });
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { raw: text };
-  }
-  if (!response.ok) return { ok: false, status: response.status, error: data?.error?.message || data?.error || text || "OpenRouter request gagal." };
-  return { ok: true, data };
+  }, Number(payload.timeoutMs) || 45000);
+  if (!result.ok) return { ok: false, status: result.status, error: result.data?.error?.message || result.data?.error || result.text || "OpenRouter request gagal." };
+  return { ok: true, data: result.data };
 }
 
 async function openExternalUrl(payload = {}) {
@@ -716,12 +1092,25 @@ async function openExternalUrl(payload = {}) {
   return { ok: true };
 }
 
+async function openUnifiedApiKeyFile() {
+  await saveUnifiedApiKeyFile();
+  shell.showItemInFolder(getUnifiedApiKeyFile());
+  return { ok: true, path: getUnifiedApiKeyFile() };
+}
+
+async function openAutoFillFile() {
+  await saveAutoFillHistory({ items: await readAutoFillHistory() });
+  shell.showItemInFolder(getAutoFillFile());
+  return { ok: true, path: getAutoFillFile() };
+}
+
 ipcMain.handle("ffmpeg:get-capabilities", async () => getFFmpegCapabilities());
 
 ipcMain.handle("pexels:search", async (_event, payload) => searchPexels(payload));
 ipcMain.handle("pixabay:search", async (_event, payload) => searchPixabay(payload));
 ipcMain.handle("spotify:track-lyrics", async (_event, payload) => getSpotifyTrackLyrics(payload));
 ipcMain.handle("asset:download", async (_event, payload) => downloadRemoteAsset(payload));
+ipcMain.handle("asset:list-downloaded", async (_event, payload) => listDownloadedAssets(payload));
 ipcMain.handle("apiframe:music-generate", async (_event, payload) => generateApiframeMusic(payload));
 ipcMain.handle("apiframe:job", async (_event, payload) => getApiframeJob(payload));
 ipcMain.handle("apiframe:keys-list", async (_event, payload = {}) => ({ ok: true, keys: await listApiframeKeys({ checkCredits: Boolean(payload.checkCredits) }) }));
@@ -731,7 +1120,15 @@ ipcMain.handle("openrouter:keys-list", async (_event, payload = {}) => ({ ok: tr
 ipcMain.handle("openrouter:keys-add", async (_event, payload) => addOpenrouterKeys(payload));
 ipcMain.handle("openrouter:key-remove", async (_event, payload) => removeOpenrouterKey(payload));
 ipcMain.handle("openrouter:chat-complete", async (_event, payload) => completeOpenrouterChat(payload));
+ipcMain.handle("generated:save", async (_event, payload) => saveGeneratedAsset(payload));
 ipcMain.handle("shell:open-external", async (_event, payload) => openExternalUrl(payload));
+ipcMain.handle("api-key-file:open", async () => openUnifiedApiKeyFile());
+ipcMain.handle("auto-fill-file:list", async () => ({ ok: true, path: getAutoFillFile(), items: await readAutoFillHistory() }));
+ipcMain.handle("auto-fill-file:save", async (_event, payload) => saveAutoFillHistory(payload));
+ipcMain.handle("auto-fill-file:open", async () => openAutoFillFile());
+ipcMain.handle("settings:get", async () => loadVidmeSettings());
+ipcMain.handle("settings:browse", async () => browseVidmeRootFolder());
+ipcMain.handle("settings:save", async (_event, payload) => saveVidmeSettings(payload));
 
 ipcMain.handle("file:exists", async (_event, payload) => {
   const filePath = payload?.filePath;
@@ -996,6 +1393,8 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   await loadLocalEnv();
+  await loadVidmeSettings();
+  await migrateAutoFillHistory();
   await loadStoredApiframeKeys();
   await loadStoredOpenrouterKeys();
   createWindow();

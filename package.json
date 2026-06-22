@@ -19,9 +19,11 @@
     "@mediapipe/face_detection": "^0.4.1646425229",
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",
     "@vitejs/plugin-react": "^4.5.0",
+    "konva": "^10.3.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-konva": "^18.2.16",
     "soundtouchjs": "^0.3.0",
     "vite": "^5.4.19",
     "zustand": "^4.5.7"

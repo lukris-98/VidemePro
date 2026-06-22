@@ -27,6 +27,7 @@ function buildTabs(clipType, media) {
   if ((clipType === "video" || clipType === "audio") && media) tabs.push("Commands");
   if (clipType === "video" || clipType === "audio") tabs.push("Export");
   if (clipType === "text") tabs.push("Teks");
+  if (clipType === "shape") tabs.push("Shape");
   if (clipType === "sticker") tabs.push("Sticker");
   tabs.push("Advanced");
   return tabs;
@@ -45,7 +46,7 @@ export function RightPanel() {
   const updateMediaItem = useMediaStore((state) => state.updateMediaItem);
   const clip = tracks.flatMap((track) => track.clips.map((item) => ({ ...item, trackType: track.type }))).find((item) => item.id === selectedClipId);
   const media = mediaItems.find((item) => item.id === clip?.mediaId);
-  const clipType = clip?.type === "text" ? "text" : media?.type ?? clip?.trackType;
+  const clipType = ["text", "sticker", "shape"].includes(clip?.type) ? clip.type : media?.type ?? clip?.trackType;
 
   const tabs = clip ? buildTabs(clipType, media) : [];
   const [activeTab, setActiveTab] = useState("Info");
@@ -239,6 +240,9 @@ function TabContent({ tab, clip, clipType, media, tracks, updateClip, updateMedi
 
     case "Sticker":
       return <StickerControls clip={clip} updateClip={updateClip} />;
+
+    case "Shape":
+      return <ShapeControls clip={clip} updateClip={updateClip} />;
 
     case "Advanced":
       return <AdvancedFFmpegPanel clip={clip} media={media} onRunCommand={(cmd) => console.log("Advanced run:", cmd)} />;
@@ -545,6 +549,29 @@ function EffectsControls({ clip, updateClip, openStabilize }) {
       <button type="button" onClick={openStabilize} className="h-8 rounded-md border border-[var(--border)] text-xs hover:bg-[var(--bg-hover)]">
         Stabilkan
       </button>
+    </Panel>
+  );
+}
+
+function ShapeControls({ clip, updateClip }) {
+  return (
+    <Panel title="Shape">
+      <Select label="Type" value={clip.shapeType ?? "rectangle"} options={["rectangle", "circle", "triangle", "diamond", "star", "line"]} onChange={(value) => updateClip(clip.id, { shapeType: value })} />
+      <label className="grid grid-cols-[80px_1fr] items-center gap-3 text-xs">
+        <span className="text-[var(--text-muted)]">Fill</span>
+        <input type="color" value={clip.fill ?? "#4d9eff"} onChange={(event) => updateClip(clip.id, { fill: event.target.value })} className="h-9 w-full rounded-md border border-[var(--border)] bg-[#151515]" />
+      </label>
+      <label className="grid grid-cols-[80px_1fr] items-center gap-3 text-xs">
+        <span className="text-[var(--text-muted)]">Stroke</span>
+        <input type="color" value={clip.stroke ?? "#ffffff"} onChange={(event) => updateClip(clip.id, { stroke: event.target.value })} className="h-9 w-full rounded-md border border-[var(--border)] bg-[#151515]" />
+      </label>
+      <Range label={`Stroke ${clip.strokeWidth ?? 0}px`} min="0" max="32" step="1" value={clip.strokeWidth ?? 0} onChange={(value) => updateClip(clip.id, { strokeWidth: value })} />
+      <Range label={`Opacity ${Math.round((clip.opacity ?? 1) * 100)}%`} min="0" max="1" step="0.05" value={clip.opacity ?? 1} onChange={(value) => updateClip(clip.id, { opacity: value })} />
+      <Range label={`Scale X ${clip.scaleX ?? 0.25}`} min="0.04" max="0.9" step="0.01" value={clip.scaleX ?? 0.25} onChange={(value) => updateClip(clip.id, { scaleX: value })} />
+      <Range label={`Scale Y ${clip.scaleY ?? 0.25}`} min="0.04" max="0.9" step="0.01" value={clip.scaleY ?? 0.25} onChange={(value) => updateClip(clip.id, { scaleY: value })} />
+      <Range label={`Rotate ${clip.rotation ?? 0}deg`} min="-180" max="180" step="1" value={clip.rotation ?? 0} onChange={(value) => updateClip(clip.id, { rotation: value })} />
+      <Range label={`Corner ${clip.cornerRadius ?? 0}px`} min="0" max="120" step="1" value={clip.cornerRadius ?? 0} onChange={(value) => updateClip(clip.id, { cornerRadius: value })} />
+      <Select label="Animasi" value={clip.animation ?? "none"} options={animations} onChange={(value) => updateClip(clip.id, { animation: value })} />
     </Panel>
   );
 }

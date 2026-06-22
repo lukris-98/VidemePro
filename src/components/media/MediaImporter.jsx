@@ -89,6 +89,7 @@ export function MediaImporter({
   const [giphyMessage, setGiphyMessage] = useState("");
   const [previewAssets, setPreviewAssets] = useState({});
   const [cachedAssets, setCachedAssets] = useState({});
+  const [localDownloadedAssets, setLocalDownloadedAssets] = useState({});
   const [downloadStatus, setDownloadStatus] = useState({});
   const [resultsSlot, setResultsSlot] = useState(null);
   const [onlinePreviewMode, setOnlinePreviewMode] = useState("dialog");
@@ -172,6 +173,23 @@ export function MediaImporter({
     localStorage.setItem("videme-online-favorites", JSON.stringify(next));
   };
 
+  const loadDownloadedAssets = async (provider) => {
+    if (!provider || provider === "giphy") return;
+    try {
+      let result = null;
+      if (window.videmeNative?.asset?.listDownloaded) {
+        result = await window.videmeNative.asset.listDownloaded({ provider });
+      } else {
+        const response = await fetch(`/vidme-asset/list?provider=${encodeURIComponent(provider)}`);
+        result = await response.json();
+      }
+      if (!result?.ok) return;
+      setLocalDownloadedAssets((state) => ({ ...state, [provider]: result.items || [] }));
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const downloadOnlineAsset = async (provider, item) => {
     const key = assetKey(provider, item);
     if (downloadStatus[key] === "loading") return;
@@ -180,6 +198,7 @@ export function MediaImporter({
       const cached = await downloadAsset(provider, item);
       setCachedAssets((state) => ({ ...state, [key]: cached }));
       setDownloadStatus((state) => ({ ...state, [key]: "done" }));
+      loadDownloadedAssets(provider);
     } catch (error) {
       setDownloadStatus((state) => ({ ...state, [key]: "error" }));
       console.error(error);
@@ -212,8 +231,8 @@ export function MediaImporter({
     });
   };
 
-  const addCachedOnlineItem = (provider, item) => {
-    const cached = cachedAssets[assetKey(provider, item)];
+  const addCachedOnlineItem = (provider, item, cachedOverride = null) => {
+    const cached = cachedOverride || cachedAssets[assetKey(provider, item)];
     if (!cached) return;
     const mediaItem = buildOnlineMediaItem(item, provider, cached);
     addMediaItem(mediaItem);
@@ -285,9 +304,11 @@ export function MediaImporter({
     if (sourceTab === "pixabay" && pixabayStatus === "idle" && pixabayResults.length === 0) {
       searchPixabay(1);
     }
+    if (sourceTab === "pixabay") loadDownloadedAssets("pixabay");
     if (sourceTab === "pexels" && status === "idle" && results.length === 0) {
       searchPexels(1);
     }
+    if (sourceTab === "pexels") loadDownloadedAssets("pexels");
     if (sourceTab === "giphy" && giphyStatus === "idle" && giphyResults.length === 0) {
       searchGiphy(1);
     }
@@ -383,7 +404,7 @@ export function MediaImporter({
             onSourceFiltersChange={setSourceFilters}
             query={query}
             onQueryChange={setQuery}
-            downloadedItems={downloadedOnlineItems("pexels", cachedAssets, results, favorites)}
+            downloadedItems={downloadedOnlineItems("pexels", cachedAssets, results, favorites, localDownloadedAssets.pexels)}
             downloadedOverlayOpen={downloadedOverlayOpen}
             onDownloadedOverlayChange={setDownloadedOverlayOpen}
             status={status}
@@ -419,7 +440,7 @@ export function MediaImporter({
             onSourceFiltersChange={setSourceFilters}
             query={pixabayQuery}
             onQueryChange={setPixabayQuery}
-            downloadedItems={downloadedOnlineItems("pixabay", cachedAssets, pixabayResults, favorites)}
+            downloadedItems={downloadedOnlineItems("pixabay", cachedAssets, pixabayResults, favorites, localDownloadedAssets.pixabay)}
             downloadedOverlayOpen={downloadedOverlayOpen}
             onDownloadedOverlayChange={setDownloadedOverlayOpen}
             status={pixabayStatus}
@@ -455,7 +476,7 @@ export function MediaImporter({
             onSourceFiltersChange={setSourceFilters}
             query={giphyQuery}
             onQueryChange={setGiphyQuery}
-            downloadedItems={downloadedOnlineItems("giphy", cachedAssets, giphyResults, favorites)}
+            downloadedItems={downloadedOnlineItems("giphy", cachedAssets, giphyResults, favorites, localDownloadedAssets.giphy)}
             downloadedOverlayOpen={downloadedOverlayOpen}
             onDownloadedOverlayChange={setDownloadedOverlayOpen}
             status={giphyStatus}
@@ -1178,7 +1199,7 @@ function MediaSourceResult({ item, provider, viewMode, previewMode, orientation,
             <button
               type="button"
               title="Tambah ke timeline"
-              onClick={() => onAddCached?.(providerId, item)}
+              onClick={() => onAddCached?.(providerId, item, cached)}
               className="col-start-2 grid h-7 w-7 place-items-center rounded bg-[var(--accent)] text-[#07111f] opacity-0 backdrop-blur transition-opacity hover:bg-[var(--accent-strong)] group-hover:opacity-100"
             >
               <Plus size={14} />
@@ -1530,18 +1551,31 @@ function assetKey(provider, item) {
   return `${provider}:${item.type}:${item.id}`;
 }
 
-function downloadedOnlineItems(provider, resultsCache = {}, results = [], favorites = {}) {
+function downloadedOnlineItems(provider, resultsCache = {}, results = [], favorites = {}, localItems = []) {
   const byKey = new Map();
   [...results, ...Object.values(favorites).filter((entry) => entry?.provider === provider).map((entry) => entry.item)]
     .filter(Boolean)
     .forEach((item) => byKey.set(assetKey(provider, item), item));
 
-  return Object.entries(resultsCache)
+  const cachedEntries = Object.entries(resultsCache)
     .filter(([key, cached]) => key.startsWith(`${provider}:`) && cached?.url)
     .map(([key, cached]) => ({
       item: byKey.get(key) || fallbackDownloadedItem(key, provider, cached),
       cached
     }));
+  const seenPaths = new Set(cachedEntries.map((entry) => entry.cached?.filePath || entry.cached?.url).filter(Boolean));
+  const localEntries = (localItems || [])
+    .filter((asset) => asset?.url && !seenPaths.has(asset.path || asset.url))
+    .map((asset) => ({
+      item: fallbackDownloadedItem(`${provider}:${asset.type}:${asset.id || asset.name}`, provider, asset),
+      cached: {
+        url: asset.url,
+        filePath: asset.path,
+        name: asset.name,
+        size: asset.size || 0
+      }
+    }));
+  return [...cachedEntries, ...localEntries];
 }
 
 function fallbackDownloadedItem(key, provider, cached) {
@@ -1590,10 +1624,47 @@ async function downloadAsset(provider, item) {
     };
   }
 
+  try {
+    const savedResponse = await fetch(`/vidme-asset/download-url?provider=${encodeURIComponent(provider)}&type=${encodeURIComponent(item.type)}&filename=${encodeURIComponent(item.name)}&url=${encodeURIComponent(sourceUrl)}`, {
+      method: "POST"
+    });
+    const saved = await savedResponse.json();
+    if (saved?.ok) {
+      return {
+        file: null,
+        url: saved.url,
+        filePath: saved.path,
+        name: saved.name || item.name,
+        size: saved.size || item.size || 0
+      };
+    }
+  } catch {
+    // Fall back to browser-side download below when the local bridge is unavailable.
+  }
+
   const response = await fetch(sourceUrl);
   if (!response.ok) throw new Error(`Download gagal (${response.status}).`);
   const blob = await response.blob();
   const file = new File([blob], item.name, { type: blob.type || (item.type === "video" ? "video/mp4" : "image/jpeg") });
+  try {
+    const savedResponse = await fetch(`/vidme-asset/save?provider=${encodeURIComponent(provider)}&type=${encodeURIComponent(item.type)}&filename=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: blob
+    });
+    const saved = await savedResponse.json();
+    if (saved?.ok) {
+      return {
+        file,
+        url: saved.url,
+        filePath: saved.path,
+        name: saved.name || file.name,
+        size: saved.size || file.size
+      };
+    }
+  } catch {
+    // Keep browser object URL fallback if the local file bridge is unavailable.
+  }
   return {
     file,
     url: URL.createObjectURL(file),

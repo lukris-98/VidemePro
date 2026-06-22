@@ -38,11 +38,11 @@ export function MediaThumbnail({ item, selected, onToggle, onPreview, onAdd, vie
         event.dataTransfer.setDragImage(ghost, 20, 20);
         window.setTimeout(() => ghost.remove(), 0);
       }}
-      className={`group relative overflow-hidden rounded-md border border-transparent bg-[#171717] text-left hover:border-[var(--border)] hover:bg-[var(--bg-hover)] ${
-        isTiles ? "grid grid-cols-[74px_minmax(0,1fr)_auto] items-center gap-2 p-1.5" : ""
+      className={`group overflow-hidden rounded-md border border-[var(--border)] bg-[#121212] text-left hover:border-[var(--accent)] ${
+        isTiles ? "grid grid-cols-[92px_minmax(0,1fr)_auto] items-center gap-2 p-1.5" : ""
       }`}
     >
-      <div className={`checkerboard relative overflow-hidden bg-black ${isTiles ? "h-12 w-[74px] rounded" : "aspect-video"}`}>
+      <div className={`checkerboard relative overflow-hidden bg-black ${isTiles ? "h-[58px] w-[92px] rounded" : "aspect-video"}`}>
         {item.thumbnailUrl ? (
           <img src={item.thumbnailUrl} alt={item.name} className="h-full w-full object-cover" />
         ) : item.type === "video" ? (
@@ -70,10 +70,11 @@ export function MediaThumbnail({ item, selected, onToggle, onPreview, onAdd, vie
           </div>
         )}
         {showsDuration ? (
-          <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 font-mono text-[9px] text-white">
+          <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 font-mono text-[9px] text-white opacity-0 transition-opacity group-hover:opacity-100">
             {formatTime(item.duration)}
           </span>
         ) : null}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/75 opacity-0 transition-opacity group-hover:opacity-90" />
         <button
           type="button"
           title={selected ? "Batalkan pilihan" : "Pilih media"}
@@ -81,21 +82,41 @@ export function MediaThumbnail({ item, selected, onToggle, onPreview, onAdd, vie
             event.stopPropagation();
             onToggle(item.id);
           }}
-          className={`absolute right-1 top-1 grid h-4 w-4 place-items-center rounded border border-white/60 bg-black/55 text-white transition ${
+          className={`absolute right-1 top-1 grid h-7 w-7 place-items-center rounded bg-black/70 text-white backdrop-blur transition hover:bg-black/85 ${
             selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
           }`}
         >
-          {selected ? <Check size={11} /> : null}
+          {selected ? <Check size={14} /> : null}
         </button>
+        {!isTiles ? (
+          <button
+            type="button"
+            title="Tambahkan ke timeline"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAdd?.(item);
+            }}
+            className="absolute right-1 top-9 grid h-7 w-7 place-items-center rounded bg-[var(--accent)] text-[#07111f] opacity-0 backdrop-blur transition hover:bg-[var(--accent-strong)] group-hover:opacity-100"
+          >
+            <Plus size={14} />
+          </button>
+        ) : null}
+        {!isTiles ? (
+          <div className="absolute bottom-1 left-1 min-w-0 max-w-[calc(100%-44px)] rounded bg-black/70 px-1.5 py-1 text-[9px] leading-3 text-white opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
+            <div className="truncate">{item.name}</div>
+            <div className="truncate text-[var(--text-muted)]">{durationLabel} · {formatBytes(item.size ?? item.file?.size)} · {mediaTypeLabel(item.type)}</div>
+          </div>
+        ) : null}
       </div>
-      <div className={`${isTiles ? "min-w-0 space-y-0.5 p-0" : "space-y-1 p-1.5"}`}>
-        <div className="truncate text-[11px] text-[var(--text-secondary)]">{item.name}</div>
+      {isTiles ? (
+      <div className="min-w-0 space-y-0.5 p-0">
+        <div className="truncate text-[11px] font-semibold text-white">{item.name}</div>
         {isTiles ? (
           <div className="truncate text-[9px] text-[var(--text-muted)]">
             {durationLabel} · {formatBytes(item.size ?? item.file?.size)} · {mediaTypeLabel(item.type)}
           </div>
         ) : null}
-        <div className={`flex h-4 items-center justify-between gap-1 ${isTiles ? "max-w-[120px]" : ""}`}>
+        <div className="flex h-5 items-center justify-between gap-1">
           {item.addedToTimeline ? (
             <span className="min-w-0 truncate rounded bg-[#24354a] px-1.5 py-0.5 text-[9px] text-[var(--accent)]">
               Ditambahkan
@@ -116,6 +137,7 @@ export function MediaThumbnail({ item, selected, onToggle, onPreview, onAdd, vie
           </button>
         </div>
       </div>
+      ) : null}
       {isTiles ? <span className="w-0" /> : null}
     </div>
   );

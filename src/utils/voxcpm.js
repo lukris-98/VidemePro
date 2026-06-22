@@ -1,12 +1,18 @@
 import { Client } from "@gradio/client";
 
 const VOXCPM_SPACE = "openbmb/VoxCPM-Demo";
+const CONNECT_TIMEOUT_MS = 45_000;
+const PREDICT_TIMEOUT_MS = 180_000;
+const DOWNLOAD_TIMEOUT_MS = 45_000;
 
 let clientPromise = null;
 
 async function getVoxCpmClient() {
   if (!clientPromise) {
-    clientPromise = Client.connect(VOXCPM_SPACE);
+    clientPromise = withTimeout(Client.connect(VOXCPM_SPACE), CONNECT_TIMEOUT_MS, "Koneksi VoxCPM terlalu lama. Coba lagi beberapa saat.").catch((error) => {
+      clientPromise = null;
+      throw error;
+    });
   }
   return clientPromise;
 }
@@ -23,7 +29,7 @@ export async function generateVoxCpmSpeech({
 }) {
   const client = await getVoxCpmClient();
   const preparedReferenceAudio = referenceAudio ? await prepareReferenceAudio(referenceAudio) : null;
-  const result = await client.predict("/generate", {
+  const result = await withTimeout(client.predict("/generate", {
     text_input: text,
     control_instruction: controlInstruction,
     reference_wav_path_input: preparedReferenceAudio,
@@ -32,7 +38,7 @@ export async function generateVoxCpmSpeech({
     cfg_value_input: cfgValue,
     do_normalize: normalize,
     denoise
-  });
+  }), PREDICT_TIMEOUT_MS, "VoxCPM terlalu lama merespons. Server mungkin sedang antre atau cold start.");
   return resolveAudioBlob(result?.data?.[0]);
 }
 
@@ -100,14 +106,35 @@ async function resolveAudioBlob(output) {
   if (!output) throw new Error("VoxCPM tidak mengembalikan audio.");
   if (output instanceof Blob) return output;
   if (typeof output === "string") {
-    const response = await fetch(output);
+    const response = await fetchWithTimeout(output);
     if (!response.ok) throw new Error("Gagal mengambil audio VoxCPM.");
     return response.blob();
   }
   if (output.url || output.path) {
-    const response = await fetch(output.url ?? output.path);
+    const response = await fetchWithTimeout(output.url ?? output.path);
     if (!response.ok) throw new Error("Gagal mengambil audio VoxCPM.");
     return response.blob();
   }
   throw new Error("Format output VoxCPM tidak dikenali.");
+}
+
+function withTimeout(promise, ms, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
+async function fetchWithTimeout(url) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("Download audio VoxCPM terlalu lama.");
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }

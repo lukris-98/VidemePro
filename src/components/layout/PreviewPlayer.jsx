@@ -4,7 +4,7 @@ import { usePlayback } from "../../hooks/usePlayback.js";
 import { useMediaStore } from "../../store/mediaStore.js";
 import { usePlaybackStore } from "../../store/playbackStore.js";
 import { useProjectStore } from "../../store/projectStore.js";
-import { getActiveStickerClips, getActiveTextClips, renderPreviewFrame } from "../../utils/previewRenderer.js";
+import { getActiveShapeClips, getActiveStickerClips, getActiveTextClips, renderPreviewFrame } from "../../utils/previewRenderer.js";
 import { useUiStore } from "../../store/uiStore.js";
 import { defaultTransform } from "../../utils/visualEffects.js";
 import { segmentFrame } from "../../utils/backgroundRemover.js";
@@ -16,8 +16,10 @@ export function PreviewPlayer() {
   const canvasRef = useRef(null);
   const previewAreaRef = useRef(null);
   const videoRef = useRef(null);
+  const audioRef = useRef(null);
   const imageRef = useRef(null);
   const dragModeRef = useRef(null);
+  const pendingOverlayCommitRef = useRef(null);
   const scrubbingPreviewRef = useRef(false);
   const pendingPreviewSeekRef = useRef(null);
   const previewSeekHandlerRef = useRef(null);
@@ -25,6 +27,9 @@ export function PreviewPlayer() {
   const [previewVideoTime, setPreviewVideoTime] = useState(0);
   const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
   const [previewVideoPlaying, setPreviewVideoPlaying] = useState(false);
+  const [previewAudioTime, setPreviewAudioTime] = useState(0);
+  const [previewAudioDuration, setPreviewAudioDuration] = useState(0);
+  const [previewAudioPlaying, setPreviewAudioPlaying] = useState(false);
   const [previewSize, setPreviewSize] = useState({ width: 640, height: 360 });
   const { currentTime, isPlaying } = usePlayback();
   const duration = usePlaybackStore((state) => state.duration);
@@ -59,13 +64,15 @@ export function PreviewPlayer() {
       mediaItems,
       videoElement: videoRef.current,
       imageElement: imageRef.current,
-      previewMedia
+      previewMedia,
+      audioPreviewTime: previewAudioTime,
+      audioPreviewDuration: previewAudioDuration
     });
   };
 
   useEffect(() => {
     drawPreview();
-  }, [currentTime, previewMedia, previewMediaId, tracks, mediaItems]);
+  }, [currentTime, previewMedia, previewMediaId, previewAudioTime, previewAudioDuration, tracks, mediaItems]);
 
   useEffect(() => {
     const element = previewAreaRef.current;
@@ -205,11 +212,74 @@ export function PreviewPlayer() {
     }
   }, [previewMedia?.id, previewMedia?.type]);
 
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || previewMedia?.type !== "audio") {
+      setPreviewAudioTime(0);
+      setPreviewAudioDuration(0);
+      setPreviewAudioPlaying(false);
+      return undefined;
+    }
+    audio.pause();
+    audio.src = previewMedia.url || "";
+    audio.currentTime = 0;
+    setPreviewAudioTime(0);
+    setPreviewAudioDuration(previewMedia.duration || 0);
+    setPreviewAudioPlaying(false);
+    const syncAudioTime = () => {
+      setPreviewAudioTime(audio.currentTime || 0);
+      setPreviewAudioDuration(audio.duration || previewMedia.duration || 0);
+    };
+    const stopAudio = () => setPreviewAudioPlaying(false);
+    audio.addEventListener("loadedmetadata", syncAudioTime);
+    audio.addEventListener("timeupdate", syncAudioTime);
+    audio.addEventListener("ended", stopAudio);
+    return () => {
+      audio.pause();
+      audio.removeEventListener("loadedmetadata", syncAudioTime);
+      audio.removeEventListener("timeupdate", syncAudioTime);
+      audio.removeEventListener("ended", stopAudio);
+    };
+  }, [previewMedia?.id, previewMedia?.type, previewMedia?.url]);
+
   const stopPreviewVideo = () => {
     const video = videoRef.current;
     if (!video || previewMedia?.type !== "video") return;
     video.pause();
     setPreviewVideoPlaying(false);
+  };
+
+  const stopPreviewAudio = () => {
+    const audio = audioRef.current;
+    if (!audio || previewMedia?.type !== "audio") return;
+    audio.pause();
+    setPreviewAudioPlaying(false);
+  };
+
+  const togglePreviewAudio = async () => {
+    const audio = audioRef.current;
+    if (!audio || previewMedia?.type !== "audio") return;
+    if (!audio.src && previewMedia.url) audio.src = previewMedia.url;
+    if (!audio.paused) {
+      stopPreviewAudio();
+      return;
+    }
+    try {
+      await audio.play();
+      setPreviewAudioPlaying(true);
+      setPreviewAudioDuration(audio.duration || previewMedia.duration || 0);
+    } catch {
+      setPreviewAudioPlaying(false);
+    }
+  };
+
+  const seekPreviewAudio = (value) => {
+    const audio = audioRef.current;
+    if (!audio || previewMedia?.type !== "audio") return;
+    const nextTime = Math.max(0, Math.min(Number(value), previewAudioDuration || previewMedia.duration || 0));
+    audio.currentTime = nextTime;
+    setPreviewAudioTime(nextTime);
+    drawPreview();
   };
 
   const togglePreviewVideo = async () => {
@@ -278,7 +348,7 @@ export function PreviewPlayer() {
     setCurrentTime(Number(value));
   };
 
-  const updateOverlayPosition = (event) => {
+  const updateOverlayPosition = (event, commit = false) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -286,22 +356,56 @@ export function PreviewPlayer() {
     const y = (event.clientY - rect.top) / rect.height;
     const clampX = Math.max(0, Math.min(1, x));
     const clampY = Math.max(0, Math.min(1, y));
+    const activeShape =
+      getActiveShapeClips(tracks, currentTime).find((clip) => clip.id === selectedClipId) ?? getActiveShapeClips(tracks, currentTime)[0];
+    if (activeShape) {
+      if (selectedClipId !== activeShape.id) selectClip(activeShape.id);
+      const patch = { posX: clampX, posY: clampY };
+      pendingOverlayCommitRef.current = { id: activeShape.id, patch };
+      if (commit) updateClip(activeShape.id, patch);
+      else updateClipLive(activeShape.id, patch);
+      return;
+    }
     const activeSticker =
       getActiveStickerClips(tracks, currentTime).find((clip) => clip.id === selectedClipId) ?? getActiveStickerClips(tracks, currentTime)[0];
     if (activeSticker) {
-      selectClip(activeSticker.id);
-      updateClip(activeSticker.id, { posX: clampX, posY: clampY });
+      if (selectedClipId !== activeSticker.id) selectClip(activeSticker.id);
+      const patch = { posX: clampX, posY: clampY };
+      pendingOverlayCommitRef.current = { id: activeSticker.id, patch };
+      if (commit) updateClip(activeSticker.id, patch);
+      else updateClipLive(activeSticker.id, patch);
       return;
     }
     const activeText = getActiveTextClips(tracks, currentTime).find((clip) => clip.id === selectedClipId) ?? getActiveTextClips(tracks, currentTime)[0];
     if (activeText) {
-      selectClip(activeText.id);
-      updateClip(activeText.id, { posX: clampX, posY: clampY });
+      if (selectedClipId !== activeText.id) selectClip(activeText.id);
+      const patch = { posX: clampX, posY: clampY };
+      pendingOverlayCommitRef.current = { id: activeText.id, patch };
+      if (commit) updateClip(activeText.id, patch);
+      else updateClipLive(activeText.id, patch);
     }
   };
 
+  const seekAudioFromCanvasPointer = (event) => {
+    const canvas = canvasRef.current;
+    if (!canvas || previewMedia?.type !== "audio") return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const durationValue = previewAudioDuration || previewMedia.duration || 0;
+    seekPreviewAudio(x * durationValue);
+  };
+
   const handleCanvasPointer = (event) => {
+    if (previewMedia?.type === "audio") {
+      event.preventDefault();
+      dragModeRef.current = "audio-preview";
+      seekAudioFromCanvasPointer(event);
+      window.addEventListener("mousemove", handleWindowMove);
+      window.addEventListener("mouseup", handleWindowUp, { once: true });
+      return;
+    }
     dragModeRef.current = "overlay";
+    pendingOverlayCommitRef.current = null;
     updateOverlayPosition(event);
     window.addEventListener("mousemove", handleWindowMove);
     window.addEventListener("mouseup", handleWindowUp, { once: true });
@@ -309,10 +413,15 @@ export function PreviewPlayer() {
 
   const handleWindowMove = (event) => {
     if (dragModeRef.current === "overlay") updateOverlayPosition(event);
+    if (dragModeRef.current === "audio-preview") seekAudioFromCanvasPointer(event);
     if (dragModeRef.current?.startsWith("crop:")) updateCrop(event, dragModeRef.current.replace("crop:", ""));
   };
 
   const handleWindowUp = () => {
+    if (dragModeRef.current === "overlay" && pendingOverlayCommitRef.current) {
+      updateClip(pendingOverlayCommitRef.current.id, pendingOverlayCommitRef.current.patch);
+      pendingOverlayCommitRef.current = null;
+    }
     dragModeRef.current = null;
     window.removeEventListener("mousemove", handleWindowMove);
   };
@@ -386,9 +495,22 @@ export function PreviewPlayer() {
     }
   };
 
-  const toolbarPlaying = previewMedia?.type === "video" ? previewVideoPlaying : isPlaying;
-  const toolbarPlayTitle = previewMedia?.type === "video" ? (previewVideoPlaying ? "Pause preview" : "Play preview") : isPlaying ? "Pause" : "Play";
-  const handleToolbarPlay = previewMedia?.type === "video" ? togglePreviewVideo : togglePlay;
+  const toolbarPlaying = previewMedia?.type === "video" ? previewVideoPlaying : previewMedia?.type === "audio" ? previewAudioPlaying : isPlaying;
+  const toolbarPlayTitle =
+    previewMedia?.type === "video"
+      ? (previewVideoPlaying ? "Pause preview" : "Play preview")
+      : previewMedia?.type === "audio"
+        ? (previewAudioPlaying ? "Pause audio preview" : "Play audio preview")
+        : isPlaying ? "Pause" : "Play";
+  const handleToolbarPlay = previewMedia?.type === "video" ? togglePreviewVideo : previewMedia?.type === "audio" ? togglePreviewAudio : togglePlay;
+  const leftTimeLabel =
+    previewMedia?.type === "audio"
+      ? formatTimecode(previewAudioDuration || previewMedia.duration || 0, fps)
+      : formatTimecode(duration, fps);
+  const rightTimeLabel =
+    previewMedia?.type === "audio"
+      ? formatTimecode(previewAudioTime, fps)
+      : formatTimecode(currentTime, fps);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -511,13 +633,14 @@ export function PreviewPlayer() {
                 onLoad={drawPreview}
               />
             ) : null}
+            <audio ref={audioRef} className="hidden" preload="auto" />
           </div>
         </div>
       </div>
 
       <div className="flex h-11 items-center gap-3 border-t border-[var(--border)] bg-[var(--bg-panel-soft)] px-4">
-        <span className="w-28 font-mono text-xs text-[var(--text-secondary)]">{formatTimecode(duration, fps)}</span>
-        <span className="w-28 font-mono text-xs text-[var(--text-secondary)]">{formatTimecode(currentTime, fps)}</span>
+        <span className="w-28 font-mono text-xs text-[var(--text-secondary)]">{leftTimeLabel}</span>
+        <span className="w-28 font-mono text-xs text-[var(--text-secondary)]">{rightTimeLabel}</span>
         <button
           type="button"
           title={toolbarPlayTitle}
@@ -528,13 +651,13 @@ export function PreviewPlayer() {
         >
           {toolbarPlaying ? <Pause size={18} /> : <Play size={18} />}
         </button>
-        <div className="w-20">
+        <div className="w-[96px]">
           <ModernSelect
             value={previewAspect}
             onChange={setPreviewAspect}
             options={previewAspectOptions}
-            buttonClassName="h-8"
-            menuClassName="bottom-[calc(100%+4px)] top-auto w-56"
+            buttonClassName="h-8 text-xs font-semibold"
+            menuClassName="bottom-[calc(100%+4px)] top-auto w-60"
             formatLabel={(label) => String(label).match(/\d+(?:\.\d+)?:\d+/)?.[0] ?? label}
           />
         </div>
@@ -552,13 +675,45 @@ export function PreviewPlayer() {
 }
 
 const previewAspectOptions = [
-  { value: "16:9", label: "YouTube 16:9" },
-  { value: "9:16", label: "Shorts/Reels/TikTok 9:16" },
-  { value: "1:1", label: "Instagram Square 1:1" },
-  { value: "4:5", label: "Instagram Feed 4:5" },
-  { value: "1.91:1", label: "Facebook/X 1.91:1" },
-  { value: "21:9", label: "Cinema 21:9" }
+  { value: "16:9", label: "YouTube 16:9", icon: Aspect169Icon },
+  { value: "9:16", label: "Shorts/Reels/TikTok 9:16", icon: Aspect916Icon },
+  { value: "1:1", label: "Instagram Square 1:1", icon: Aspect11Icon },
+  { value: "4:5", label: "Instagram Feed 4:5", icon: Aspect45Icon },
+  { value: "1.91:1", label: "Facebook/X 1.91:1", icon: Aspect191Icon },
+  { value: "21:9", label: "Cinema 21:9", icon: Aspect219Icon }
 ];
+
+function AspectIcon({ ratioClass, size = 14, className = "" }) {
+  return (
+    <span className={`grid shrink-0 place-items-center ${className}`} style={{ width: size, height: size }}>
+      <span className={`block rounded-[2px] border-2 border-current ${ratioClass}`} />
+    </span>
+  );
+}
+
+function Aspect169Icon(props) {
+  return <AspectIcon {...props} ratioClass="h-[8px] w-[14px]" />;
+}
+
+function Aspect916Icon(props) {
+  return <AspectIcon {...props} ratioClass="h-[14px] w-[8px]" />;
+}
+
+function Aspect11Icon(props) {
+  return <AspectIcon {...props} ratioClass="h-[12px] w-[12px]" />;
+}
+
+function Aspect45Icon(props) {
+  return <AspectIcon {...props} ratioClass="h-[14px] w-[11px]" />;
+}
+
+function Aspect191Icon(props) {
+  return <AspectIcon {...props} ratioClass="h-[8px] w-[15px]" />;
+}
+
+function Aspect219Icon(props) {
+  return <AspectIcon {...props} ratioClass="h-[7px] w-[16px]" />;
+}
 
 function aspectValue(aspect) {
   if (aspect === "9:16") return 9 / 16;

@@ -1,7 +1,8 @@
-import { convertWebmToMp4 } from "./ffmpegHelper.js";
 import { getTextAnimation } from "./animationPresets.js";
 import { applyAutoReframe, applyBackgroundRemove, applyFaceBlur } from "./aiEffects.js";
 import { applyColorData, buildCSSFilter, drawVignette, drawWithTransform } from "./visualEffects.js";
+import { drawShapeClip } from "./shapeLibrary.js";
+import { buildH264Args, chooseBestH264Encoder, getNativeFFmpegCapabilities, transcodeBlobNative } from "./ffmpegRuntime.js";
 
 const resolutionMap = {
   "480p": [854, 480],
@@ -51,13 +52,26 @@ export async function exportProject({ projectName, tracks, mediaItems, options, 
   const webmBlob = await done;
   if (options.format === "mp4") {
     const crf = qualityToCrf(options.quality);
-    const mp4Blob = await convertWebmToMp4(webmBlob, crf, (progress) => onProgress?.(0.75 + progress * 0.25));
+    const mp4Blob = await convertWebmToMp4NativeOnly(webmBlob, crf, (progress) => onProgress?.(0.75 + progress * 0.25));
     downloadBlob(mp4Blob, `${projectName}.mp4`);
     return mp4Blob;
   }
   downloadBlob(webmBlob, `${projectName}.webm`);
   onProgress?.(1);
   return webmBlob;
+}
+
+async function convertWebmToMp4NativeOnly(webmBlob, crf, onProgress) {
+  const capabilities = await getNativeFFmpegCapabilities();
+  if (!capabilities.available) {
+    throw new Error(capabilities.error || "FFmpeg native tidak tersedia. MP4 export tanpa wasm membutuhkan aplikasi desktop dan FFmpeg di PATH.");
+  }
+  onProgress?.(0.05);
+  const encoder = chooseBestH264Encoder(capabilities);
+  const args = buildH264Args({ encoder, crf });
+  const result = await transcodeBlobNative(webmBlob, { inputExt: "webm", outputExt: "mp4", args, jobId: `export-${Date.now()}` });
+  onProgress?.(1);
+  return result;
 }
 
 async function renderFrame(ctx, width, height, time, tracks, mediaItems, imageCache, videoCache, stickerCache) {
@@ -72,7 +86,8 @@ async function renderFrame(ctx, width, height, time, tracks, mediaItems, imageCa
     }
     if (track.type === "overlay") {
       for (const clip of track.clips.filter((item) => time >= item.start && time <= item.end)) {
-        drawStickerClip(ctx, width, height, clip, time, stickerCache);
+        if (clip.type === "shape") drawShapeClip(ctx, width, height, clip, time);
+        else drawStickerClip(ctx, width, height, clip, time, stickerCache);
       }
       continue;
     }

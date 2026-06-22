@@ -26,7 +26,8 @@ contextBridge.exposeInMainWorld("videmeNative", {
     make: (payload) => ipcRenderer.invoke("ffmpeg:make-proxy", payload)
   },
   asset: {
-    download: (payload) => ipcRenderer.invoke("asset:download", payload)
+    download: (payload) => ipcRenderer.invoke("asset:download", payload),
+    listDownloaded: (payload) => ipcRenderer.invoke("asset:list-downloaded", payload)
   },
   pexels: {
     search: (payload) => ipcRenderer.invoke("pexels:search", payload)
@@ -49,6 +50,22 @@ contextBridge.exposeInMainWorld("videmeNative", {
     addKeys: (keys) => ipcRenderer.invoke("openrouter:keys-add", { keys }),
     removeKey: (id) => ipcRenderer.invoke("openrouter:key-remove", { id }),
     complete: (payload) => ipcRenderer.invoke("openrouter:chat-complete", payload)
+  },
+  generated: {
+    save: (payload) => ipcRenderer.invoke("generated:save", payload)
+  },
+  settings: {
+    get: () => ipcRenderer.invoke("settings:get"),
+    browse: () => ipcRenderer.invoke("settings:browse"),
+    save: (rootDir) => ipcRenderer.invoke("settings:save", { rootDir })
+  },
+  apiKeyFile: {
+    open: () => ipcRenderer.invoke("api-key-file:open")
+  },
+  autoFillFile: {
+    list: () => ipcRenderer.invoke("auto-fill-file:list"),
+    save: (items) => ipcRenderer.invoke("auto-fill-file:save", { items }),
+    open: () => ipcRenderer.invoke("auto-fill-file:open")
   },
   shell: {
     openExternal: (url) => ipcRenderer.invoke("shell:open-external", { url })

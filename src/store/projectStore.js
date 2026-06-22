@@ -12,6 +12,7 @@ import {
   timelineItemsFromTracks
 } from "../utils/timelineEngine.js";
 import { builtinStickers, defaultEffects, defaultFilters, defaultTransform } from "../utils/visualEffects.js";
+import { createShapeClip, shapePresets } from "../utils/shapeLibrary.js";
 
 const initialTracks = normalizeTracks([]);
 const initialTimeline = buildTimeline(initialTracks, 12);
@@ -364,11 +365,15 @@ export const useProjectStore = create((set, get) => ({
         clips: track.clips.map((clip) => (clip.id === clipId ? normalizeClipFrames(normalizeClipTiming({ ...clip, ...patch }), state.timeline?.fps ?? DEFAULT_TIMELINE_FPS) : clip))
       }))
     })),
-  addTextClip: (start = 0) =>
+  addTextClip: (start = 0, overrides = {}, requestedTrackId = null) =>
     set((state) => {
-      const textTrack = state.tracks.find((track) => track.type === "text") ?? state.tracks[0];
+      const requestedTrack = state.tracks.find((track) => track.id === requestedTrackId);
+      const textTrack =
+        (requestedTrack && (requestedTrack.type === "text" || requestedTrack.type === "overlay") ? requestedTrack : null) ??
+        state.tracks.find((track) => track.type === "text") ??
+        state.tracks.find((track) => track.type === "overlay");
       if (!textTrack) return state;
-      const clip = normalizeClipFrames(createTextClip(textTrack.id, start), state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
+      const clip = normalizeClipFrames({ ...createTextClip(textTrack.id, start), ...overrides, trackId: textTrack.id }, state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
       const tracks = state.tracks.map((track) =>
         track.id === textTrack.id ? { ...track, clips: [...track.clips, clip] } : track
       );
@@ -380,6 +385,17 @@ export const useProjectStore = create((set, get) => ({
       const sticker = builtinStickers.find((item) => item.id === stickerId) ?? builtinStickers[0];
       if (!overlayTrack || !sticker) return state;
       const clip = normalizeClipFrames(createStickerClip(overlayTrack.id, sticker, start), state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
+      const tracks = state.tracks.map((track) =>
+        track.id === overlayTrack.id ? { ...track, clips: [...track.clips, clip] } : track
+      );
+      return commitState(state, { tracks, duration: recalcDuration(tracks), selectedClipId: clip.id });
+    }),
+  addShapeClip: (shapeId = "rectangle", start = 0) =>
+    set((state) => {
+      const overlayTrack = state.tracks.find((track) => track.type === "overlay") ?? state.tracks[0];
+      const preset = shapePresets.find((item) => item.id === shapeId) ?? shapePresets[0];
+      if (!overlayTrack || !preset) return state;
+      const clip = normalizeClipFrames(createShapeClip(overlayTrack.id, preset, start), state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
       const tracks = state.tracks.map((track) =>
         track.id === overlayTrack.id ? { ...track, clips: [...track.clips, clip] } : track
       );
@@ -720,7 +736,15 @@ function createTextClip(trackId, start) {
     posX: 0.5,
     posY: 0.85,
     animation: "fadeIn",
-    animDuration: 0.5
+    animDuration: 0.5,
+    rotation: 0,
+    opacity: 1,
+    stroke: "#000000",
+    strokeWidth: 0,
+    shadowColor: "#000000",
+    shadowBlur: 0,
+    shadowOpacity: 0,
+    letterSpacing: 0
   };
 }
 

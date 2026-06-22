@@ -244,6 +244,7 @@ export function Timeline() {
   const tracks = useProjectStore((state) => state.tracks);
   const duration = useProjectStore((state) => state.duration);
   const addClip = useProjectStore((state) => state.addClip);
+  const addTextClip = useProjectStore((state) => state.addTextClip);
   const removeSelectedClip = useProjectStore((state) => state.removeSelectedClip);
   const reorderTrack = useProjectStore((state) => state.reorderTrack);
   const setProjectThumbnail = useProjectStore((state) => state.setProjectThumbnail);
@@ -258,6 +259,7 @@ export function Timeline() {
   const currentTime = usePlaybackStore((state) => state.currentTime);
   const fps = usePlaybackStore((state) => state.fps);
   const pausePlayback = usePlaybackStore((state) => state.pause);
+  const playPlayback = usePlaybackStore((state) => state.play);
   const setPlaybackDuration = usePlaybackStore((state) => state.setDuration);
   const snapEnabled = useUiStore((state) => state.snapEnabled);
   const toggleSnap = useUiStore((state) => state.toggleSnap);
@@ -341,8 +343,27 @@ export function Timeline() {
     seekFromPointer(event, scrollRef.current);
   };
 
+  const handleSeekAndPlay = (event) => {
+    if (!scrollRef.current) return;
+    setPreviewMedia(null);
+    seekFromPointer(event, scrollRef.current);
+    playPlayback();
+  };
+
   const handleDropMedia = (event, trackId) => {
     event.preventDefault();
+    const textPayload = readTextDragPayload(event.dataTransfer);
+    if (textPayload && scrollRef.current) {
+      const rawStart = timeFromPointer(event, scrollRef.current);
+      const duration = Number(event.dataTransfer.getData("textDuration")) || 4;
+      const resolvedTrackId = resolveTextTrackId(tracks, trackId);
+      const track = tracks.find((item) => item.id === resolvedTrackId);
+      const start = snapStart(rawStart, duration, track?.clips ?? [], currentTime, snapEnabled, pixelsPerSecond, fps);
+      addTextClip(start, textPayload, resolvedTrackId);
+      setGhost(null);
+      setPreviewMedia(null);
+      return;
+    }
     const mediaId = event.dataTransfer.getData("mediaId");
     const media = mediaItems.find((item) => item.id === mediaId);
     if (!media || !scrollRef.current) return;
@@ -375,6 +396,15 @@ export function Timeline() {
   const handleDragMediaOver = (event, trackId) => {
     if (!event || !scrollRef.current) {
       setGhost(null);
+      return;
+    }
+    if (isTextDrag(event.dataTransfer)) {
+      const duration = Number(event.dataTransfer.getData("textDuration")) || 4;
+      const resolvedTrackId = resolveTextTrackId(tracks, trackId);
+      const track = tracks.find((item) => item.id === resolvedTrackId);
+      const rawStart = timeFromPointer(event, scrollRef.current);
+      const start = snapStart(rawStart, duration, track?.clips ?? [], currentTime, snapEnabled, pixelsPerSecond, fps);
+      setGhost({ trackId: resolvedTrackId, start, duration, kind: "text" });
       return;
     }
     const mediaId = event.dataTransfer.getData("mediaId");
@@ -427,7 +457,12 @@ export function Timeline() {
   };
 
   const endTimelinePointer = (event) => {
+    const wasDraggingPlayhead = draggingPlayhead;
     setDraggingPlayhead(false);
+    if (wasDraggingPlayhead) {
+      playPlayback();
+      return;
+    }
     if (!marqueeRef.current) return;
     const rect = marqueeToRect(marqueeRef.current);
     const didDrag = rect.width > 3 || rect.height > 3;
@@ -437,9 +472,7 @@ export function Timeline() {
       setTimelineSelection(selected);
     } else {
       if (event?.target && scrollRef.current?.contains(event.target)) {
-        setPreviewMedia(null);
-        pausePlayback();
-        seekFromPointer(event, scrollRef.current);
+        handleSeekAndPlay(event);
       }
       deselectAll();
       setTimelineSelection([]);
@@ -656,6 +689,26 @@ function findClipsInRect(tracks, pixelsPerSecond, getHeight, rect) {
 
 function rectIntersects(a, b) {
   return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+}
+
+function readTextDragPayload(dataTransfer) {
+  const raw = dataTransfer.getData("application/x-videme-text") || dataTransfer.getData("textPreset");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function isTextDrag(dataTransfer) {
+  return Array.from(dataTransfer.types ?? []).some((type) => type === "application/x-videme-text" || type === "textpreset");
+}
+
+function resolveTextTrackId(tracks, requestedTrackId) {
+  const requested = tracks.find((track) => track.id === requestedTrackId);
+  if (requested?.type === "text" || requested?.type === "overlay") return requested.id;
+  return tracks.find((track) => track.type === "text")?.id ?? tracks.find((track) => track.type === "overlay")?.id ?? requestedTrackId;
 }
 
 function snapStart(rawStart, duration, clips, playheadTime, enabled, pixelsPerSecond, fps) {
