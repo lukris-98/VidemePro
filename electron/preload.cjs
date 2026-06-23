@@ -59,6 +59,9 @@ contextBridge.exposeInMainWorld("videmeNative", {
     browse: () => ipcRenderer.invoke("settings:browse"),
     save: (rootDir) => ipcRenderer.invoke("settings:save", { rootDir })
   },
+  sharex: {
+    openRecorder: () => ipcRenderer.invoke("sharex:open-recorder")
+  },
   apiKeyFile: {
     open: () => ipcRenderer.invoke("api-key-file:open")
   },

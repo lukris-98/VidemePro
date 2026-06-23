@@ -251,9 +251,6 @@ export function LeftPanel() {
   );
 }
 
-const textStudioWidth = 286;
-const textStudioHeight = 176;
-
 const textPresets = [
   {
     id: "clean-title",
@@ -332,28 +329,99 @@ const textPresets = [
     posY: 0.78,
     align: "center",
     animation: "slideUp"
+  },
+  {
+    id: "breaking",
+    name: "Breaking",
+    sample: "BREAKING",
+    fontFamily: "Impact",
+    fontSize: 48,
+    fontWeight: "normal",
+    color: "#ffffff",
+    backgroundColor: "#e11d48",
+    padding: 10,
+    stroke: "#000000",
+    strokeWidth: 1,
+    shadowColor: "#000000",
+    shadowBlur: 8,
+    shadowOpacity: 0.45,
+    letterSpacing: 1,
+    posX: 0.5,
+    posY: 0.2,
+    align: "center",
+    animation: "slideUp"
+  },
+  {
+    id: "soft-subtitle",
+    name: "Soft subtitle",
+    sample: "Subtitle",
+    fontFamily: "Verdana",
+    fontSize: 38,
+    fontWeight: "bold",
+    color: "#f8fafc",
+    backgroundColor: "rgba(15, 23, 42, 0.72)",
+    padding: 10,
+    stroke: "#000000",
+    strokeWidth: 0,
+    shadowColor: "#000000",
+    shadowBlur: 6,
+    shadowOpacity: 0.45,
+    letterSpacing: 0,
+    posX: 0.5,
+    posY: 0.84,
+    align: "center",
+    animation: "fadeIn"
+  },
+  {
+    id: "retro",
+    name: "Retro pop",
+    sample: "RETRO POP",
+    fontFamily: "Georgia",
+    fontSize: 44,
+    fontWeight: "bold",
+    color: "#fef08a",
+    stroke: "#7c2d12",
+    strokeWidth: 3,
+    shadowColor: "#fb923c",
+    shadowBlur: 12,
+    shadowOpacity: 0.8,
+    letterSpacing: 1,
+    posX: 0.5,
+    posY: 0.48,
+    align: "center",
+    animation: "bounce"
+  },
+  {
+    id: "minimal-tag",
+    name: "Minimal tag",
+    sample: "UPDATE",
+    fontFamily: "Arial",
+    fontSize: 34,
+    fontWeight: "bold",
+    color: "#0f172a",
+    backgroundColor: "#e2e8f0",
+    padding: 8,
+    stroke: "#000000",
+    strokeWidth: 0,
+    shadowColor: "#000000",
+    shadowBlur: 4,
+    shadowOpacity: 0.25,
+    letterSpacing: 2,
+    posX: 0.22,
+    posY: 0.18,
+    align: "center",
+    animation: "zoomIn"
   }
 ];
 
-function TextPanel({ clip, currentTime, addTextClip, updateClip }) {
-  const [draft, setDraft] = useState(() => textDraftFromClip(clip));
+function TextPanel({ clip, currentTime, addTextClip }) {
   const [activePreset, setActivePreset] = useState("clean-title");
   const [draggingPresetId, setDraggingPresetId] = useState(null);
-  const textInputRef = useRef(null);
-
-  useEffect(() => {
-    setDraft(textDraftFromClip(clip));
-  }, [clip?.id]);
-
-  const patchDraft = (patch, commit = true) => {
-    setDraft((current) => ({ ...current, ...patch }));
-    if (clip && commit) updateClip(clip.id, patch);
-  };
 
   const applyPreset = (preset) => {
     const patch = {
       ...preset,
-      text: clip?.text || preset.sample,
+      text: preset.sample,
       name: preset.name,
       backgroundColor: preset.backgroundColor ?? "transparent",
       opacity: 1,
@@ -362,30 +430,28 @@ function TextPanel({ clip, currentTime, addTextClip, updateClip }) {
     delete patch.id;
     delete patch.sample;
     setActivePreset(preset.id);
-    setDraft((current) => ({ ...current, ...patch }));
-    if (clip) updateClip(clip.id, patch);
-    else addTextClip(currentTime, patch);
-  };
-
-  const addDraftToTimeline = () => {
-    addTextClip(currentTime, { ...draft, name: draft.text?.trim() || "Text" });
+    addTextClip(currentTime, patch);
   };
 
   const addPlainText = () => {
     const plain = {
-      ...textDraftFromClip(null),
       text: "Teks biasa",
       name: "Teks biasa",
+      fontFamily: "Arial",
+      fontSize: 48,
+      fontWeight: "bold",
+      color: "#ffffff",
       posY: 0.5,
       animation: "none",
+      stroke: "#000000",
       strokeWidth: 0,
+      shadowColor: "#000000",
       shadowBlur: 0,
       shadowOpacity: 0,
       letterSpacing: 0,
       backgroundColor: "transparent"
     };
     setActivePreset(null);
-    setDraft(plain);
     addTextClip(currentTime, plain);
   };
 
@@ -414,16 +480,9 @@ function TextPanel({ clip, currentTime, addTextClip, updateClip }) {
           <Type size={15} className="text-[var(--clip-text)]" />
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-white">Text studio</h2>
-            <p className="truncate text-[10px] text-[var(--text-muted)]">{clip ? "Mengedit klip terpilih" : "Buat title dengan KonvaJS"}</p>
+            <p className="truncate text-[10px] text-[var(--text-muted)]">{clip ? "Mengedit klip terpilih" : "Pilih template atau buat teks baru"}</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => textInputRef.current?.focus()}
-          className="shrink-0 rounded border border-[var(--border)] bg-[#151515] px-2 py-1 text-[10px] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-white"
-        >
-          Edit teks
-        </button>
       </div>
 
       <button
@@ -443,7 +502,7 @@ function TextPanel({ clip, currentTime, addTextClip, updateClip }) {
         <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Preset teks</span>
         <span className="text-[9px] text-[var(--text-muted)]">Drag ke timeline</span>
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-4 gap-1.5">
         {textPresets.map((preset) => (
           <button
             key={preset.id}
@@ -452,7 +511,7 @@ function TextPanel({ clip, currentTime, addTextClip, updateClip }) {
             onClick={() => applyPreset(preset)}
             onDragStart={(event) => beginPresetDrag(event, preset)}
             onDragEnd={() => setDraggingPresetId(null)}
-            className={`group cursor-grab overflow-hidden rounded-md border p-2 text-left transition duration-150 active:cursor-grabbing active:translate-y-px ${
+            className={`group cursor-grab overflow-hidden rounded-md border p-1.5 text-left transition duration-150 active:cursor-grabbing active:translate-y-px ${
               draggingPresetId === preset.id
                 ? "scale-[0.97] border-[var(--accent)] opacity-55"
                 : activePreset === preset.id
@@ -461,83 +520,31 @@ function TextPanel({ clip, currentTime, addTextClip, updateClip }) {
             }`}
           >
             <KonvaTextPresetPreview preset={preset} />
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <span className="truncate text-xs text-[var(--text-secondary)]">{preset.name}</span>
-              <Plus size={13} className="shrink-0 text-[var(--accent)] opacity-0 transition group-hover:opacity-100" />
+            <div className="mt-1 flex items-center justify-between gap-1">
+              <span className="min-w-0 truncate text-[10px] text-[var(--text-secondary)]">{preset.name}</span>
+              <Plus size={11} className="shrink-0 text-[var(--accent)] opacity-0 transition group-hover:opacity-100" />
             </div>
           </button>
         ))}
-      </div>
-
-      <div className="mt-3 overflow-hidden rounded-md border border-[var(--border)] bg-[#101010]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-2">
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Konva canvas</span>
-          <span className="text-[10px] text-[var(--text-muted)]">Drag · resize · rotate</span>
-        </div>
-        <KonvaTextStudio value={draft} onChange={patchDraft} />
-      </div>
-
-      <div className="mt-3 space-y-3 rounded-md border border-[var(--border)] bg-[#141414] p-3">
-        <label className="grid gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Isi teks</span>
-          <textarea
-            ref={textInputRef}
-            value={draft.text}
-            onChange={(event) => patchDraft({ text: event.target.value })}
-            className="min-h-16 resize-none rounded-md border border-[var(--border)] bg-[#0d0d0d] p-2 text-xs leading-5 text-white outline-none focus:border-[var(--accent)]"
-            placeholder="Tulis teks..."
-          />
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          <TextStudioSelect label="Font" value={draft.fontFamily} options={["Arial", "Impact", "Georgia", "Verdana", "Courier New"]} onChange={(fontFamily) => patchDraft({ fontFamily })} />
-          <TextStudioSelect label="Align" value={draft.align} options={["left", "center", "right"]} onChange={(align) => patchDraft({ align })} />
-        </div>
-        <TextStudioRange label={`Ukuran ${Math.round(draft.fontSize)}px`} min={18} max={120} step={1} value={draft.fontSize} onChange={(fontSize) => patchDraft({ fontSize })} />
-        <TextStudioRange label={`Stroke ${draft.strokeWidth}px`} min={0} max={12} step={1} value={draft.strokeWidth} onChange={(strokeWidth) => patchDraft({ strokeWidth })} />
-        <TextStudioRange label={`Shadow ${draft.shadowBlur}px`} min={0} max={32} step={1} value={draft.shadowBlur} onChange={(shadowBlur) => patchDraft({ shadowBlur })} />
-        <TextStudioRange label={`Spacing ${draft.letterSpacing}px`} min={-2} max={16} step={1} value={draft.letterSpacing} onChange={(letterSpacing) => patchDraft({ letterSpacing })} />
-        <div className="grid grid-cols-3 gap-2">
-          <TextColorField label="Teks" value={draft.color} onChange={(color) => patchDraft({ color })} />
-          <TextColorField label="Stroke" value={draft.stroke} onChange={(stroke) => patchDraft({ stroke })} />
-          <TextColorField label="Shadow" value={draft.shadowColor} onChange={(shadowColor) => patchDraft({ shadowColor })} />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => patchDraft({ fontWeight: draft.fontWeight === "bold" ? "normal" : "bold" })}
-            className={`h-8 rounded-md border text-xs font-bold ${draft.fontWeight === "bold" ? "border-[var(--accent)] bg-[#152235] text-[var(--accent)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"}`}
-          >
-            Bold
-          </button>
-          <TextStudioSelect label="Animasi" value={draft.animation} options={["none", "fadeIn", "slideUp", "zoomIn", "bounce", "typewriter"]} onChange={(animation) => patchDraft({ animation })} compact />
-        </div>
-        <button
-          type="button"
-          onClick={addDraftToTimeline}
-          className="flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent)] text-xs font-bold text-[#07111f] hover:bg-[var(--accent-strong)]"
-        >
-          <Plus size={14} />
-          {clip ? "Tambah sebagai teks baru" : "Tambah ke timeline"}
-        </button>
       </div>
     </div>
   );
 }
 
 function KonvaTextPresetPreview({ preset }) {
-  const scale = Math.min(1, 108 / Math.max(70, preset.sample.length * (preset.fontSize * 0.48)));
+  const scale = Math.min(1, 78 / Math.max(56, preset.sample.length * (preset.fontSize * 0.42)));
   return (
-    <div className="h-[72px] overflow-hidden rounded bg-[#080a0d]" aria-hidden="true">
-      <Stage width={132} height={72}>
+    <div className="h-[48px] overflow-hidden rounded bg-[#080a0d]" aria-hidden="true">
+      <Stage width={92} height={48}>
         <Layer>
           {preset.backgroundColor && preset.backgroundColor !== "transparent" ? (
-            <Rect x={10} y={22} width={112} height={30} fill={preset.backgroundColor} cornerRadius={4} shadowColor="#000000" shadowBlur={8} shadowOpacity={0.35} />
+            <Rect x={7} y={16} width={78} height={20} fill={preset.backgroundColor} cornerRadius={3} shadowColor="#000000" shadowBlur={6} shadowOpacity={0.35} />
           ) : null}
           <KonvaText
             text={preset.sample}
-            x={8}
-            y={26}
-            width={116}
+            x={6}
+            y={17}
+            width={80}
             align="center"
             fontFamily={preset.fontFamily}
             fontSize={preset.fontSize * scale}
@@ -554,144 +561,6 @@ function KonvaTextPresetPreview({ preset }) {
       </Stage>
     </div>
   );
-}
-
-function KonvaTextStudio({ value, onChange }) {
-  const textRef = useRef(null);
-  const transformerRef = useRef(null);
-
-  useEffect(() => {
-    if (!textRef.current || !transformerRef.current) return;
-    transformerRef.current.nodes([textRef.current]);
-    transformerRef.current.getLayer()?.batchDraw();
-  }, []);
-
-  const textWidth = 240;
-  const textHeight = Math.max(36, value.fontSize * 1.35);
-  const x = (value.posX ?? 0.5) * textStudioWidth - textWidth / 2;
-  const y = (value.posY ?? 0.5) * textStudioHeight - textHeight / 2;
-
-  return (
-    <Stage width={textStudioWidth} height={textStudioHeight}>
-      <Layer>
-        <Rect width={textStudioWidth} height={textStudioHeight} fill="#080a0d" />
-        <Rect x={14} y={10} width={textStudioWidth - 28} height={textStudioHeight - 20} stroke="rgba(255,255,255,0.12)" dash={[4, 5]} listening={false} />
-        <Line points={[textStudioWidth / 2, 10, textStudioWidth / 2, textStudioHeight - 10]} stroke="rgba(77,158,255,0.16)" listening={false} />
-        <Line points={[14, textStudioHeight / 2, textStudioWidth - 14, textStudioHeight / 2]} stroke="rgba(77,158,255,0.16)" listening={false} />
-        <KonvaText
-          ref={textRef}
-          text={value.text || "Tulis teks"}
-          x={x}
-          y={y}
-          width={textWidth}
-          align={value.align}
-          fontFamily={value.fontFamily}
-          fontSize={Math.min(72, value.fontSize)}
-          fontStyle={value.fontWeight === "bold" ? "bold" : "normal"}
-          fill={value.color}
-          stroke={value.stroke}
-          strokeWidth={value.strokeWidth}
-          shadowColor={value.shadowColor}
-          shadowBlur={value.shadowBlur}
-          shadowOpacity={value.shadowOpacity}
-          letterSpacing={value.letterSpacing}
-          padding={value.padding}
-          rotation={value.rotation}
-          opacity={value.opacity}
-          draggable
-          onDragEnd={(event) => {
-            const node = event.target;
-            onChange({
-              posX: Math.max(0, Math.min(1, (node.x() + textWidth / 2) / textStudioWidth)),
-              posY: Math.max(0, Math.min(1, (node.y() + textHeight / 2) / textStudioHeight))
-            });
-          }}
-          onTransformEnd={(event) => {
-            const node = event.target;
-            const nextSize = Math.max(18, Math.min(120, value.fontSize * node.scaleY()));
-            node.scaleX(1);
-            node.scaleY(1);
-            onChange({
-              fontSize: Math.round(nextSize),
-              rotation: Math.round(node.rotation()),
-              posX: Math.max(0, Math.min(1, (node.x() + textWidth / 2) / textStudioWidth)),
-              posY: Math.max(0, Math.min(1, (node.y() + textHeight / 2) / textStudioHeight))
-            });
-          }}
-        />
-        <Transformer
-          ref={transformerRef}
-          rotateEnabled
-          keepRatio
-          enabledAnchors={["top-left", "top-right", "bottom-left", "bottom-right"]}
-          anchorSize={7}
-          anchorFill="#f1c94c"
-          anchorStroke="#07111f"
-          borderStroke="#f1c94c"
-          boundBoxFunc={(oldBox, newBox) => (newBox.width < 50 || newBox.height < 20 ? oldBox : newBox)}
-        />
-      </Layer>
-    </Stage>
-  );
-}
-
-function TextStudioRange({ label, value, min, max, step, onChange }) {
-  return (
-    <label className="grid gap-1.5 text-[10px] text-[var(--text-muted)]">
-      <span>{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="accent-[var(--accent)]" />
-    </label>
-  );
-}
-
-function TextStudioSelect({ label, value, options, onChange, compact = false }) {
-  return (
-    <label className={compact ? "block" : "grid gap-1.5"}>
-      {!compact ? <span className="text-[10px] text-[var(--text-muted)]">{label}</span> : null}
-      <select
-        title={label}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-md border border-[var(--border)] bg-[#0d0d0d] px-2 text-[10px] text-[var(--text-secondary)] outline-none focus:border-[var(--accent)]"
-      >
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function TextColorField({ label, value, onChange }) {
-  return (
-    <label className="grid gap-1.5 text-center text-[9px] text-[var(--text-muted)]">
-      <span>{label}</span>
-      <input type="color" value={value} onChange={(event) => onChange(event.target.value)} className="h-8 w-full rounded border border-[var(--border)] bg-[#0d0d0d] p-1" />
-    </label>
-  );
-}
-
-function textDraftFromClip(clip) {
-  return {
-    text: clip?.text ?? "JUDUL UTAMA",
-    fontFamily: clip?.fontFamily ?? "Arial",
-    fontSize: clip?.fontSize ?? 56,
-    fontWeight: clip?.fontWeight ?? "bold",
-    color: clip?.color ?? "#ffffff",
-    backgroundColor: clip?.backgroundColor ?? "transparent",
-    padding: clip?.padding ?? 8,
-    align: clip?.align ?? "center",
-    posX: clip?.posX ?? 0.5,
-    posY: clip?.posY ?? 0.5,
-    rotation: clip?.rotation ?? 0,
-    opacity: clip?.opacity ?? 1,
-    stroke: clip?.stroke ?? "#000000",
-    strokeWidth: clip?.strokeWidth ?? 0,
-    shadowColor: clip?.shadowColor ?? "#000000",
-    shadowBlur: clip?.shadowBlur ?? 10,
-    shadowOpacity: clip?.shadowOpacity ?? 0.55,
-    letterSpacing: clip?.letterSpacing ?? 0,
-    animation: clip?.animation ?? "fadeIn",
-    animDuration: clip?.animDuration ?? 0.5
-  };
 }
 
 function ShapePanel({ onAddShape }) {

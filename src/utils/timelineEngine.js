@@ -205,6 +205,13 @@ function withBufferTracks(activeTracks, type) {
   const buffers = Array.from({ length: missing }, (_, index) =>
     createTrack(type, count + index + 1, { buffer: true, name: `${TRACK_TITLES[type]} Buffer ${index + 1}` })
   );
+  if (type === "overlay") {
+    return [
+      ...emptyTracks.map((track, index) => ({ ...track, buffer: !track.userTrack, name: track.name ?? `${TRACK_TITLES[type]} Buffer ${index + 1}` })),
+      ...buffers,
+      ...filledTracks.map((track) => ({ ...track, buffer: false }))
+    ];
+  }
   return [
     ...filledTracks.map((track) => ({ ...track, buffer: false })),
     ...emptyTracks.map((track, index) => ({ ...track, buffer: !track.userTrack, name: track.name ?? `${TRACK_TITLES[type]} Buffer ${index + 1}` })),

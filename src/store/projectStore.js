@@ -367,11 +367,8 @@ export const useProjectStore = create((set, get) => ({
     })),
   addTextClip: (start = 0, overrides = {}, requestedTrackId = null) =>
     set((state) => {
-      const requestedTrack = state.tracks.find((track) => track.id === requestedTrackId);
-      const textTrack =
-        (requestedTrack && (requestedTrack.type === "text" || requestedTrack.type === "overlay") ? requestedTrack : null) ??
-        state.tracks.find((track) => track.type === "text") ??
-        state.tracks.find((track) => track.type === "overlay");
+      const duration = resolveTextClipDuration(start, overrides);
+      const textTrack = selectTextTrackNearMain(state.tracks, start, duration, requestedTrackId);
       if (!textTrack) return state;
       const clip = normalizeClipFrames({ ...createTextClip(textTrack.id, start), ...overrides, trackId: textTrack.id }, state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
       const tracks = state.tracks.map((track) =>
@@ -710,6 +707,32 @@ function normalizeClipTiming(clip) {
     return { ...clip, end: clip.start + (clip.outPoint - clip.inPoint) / clip.speed };
   }
   return clip;
+}
+
+function selectTextTrackNearMain(tracks, start, duration, requestedTrackId = null) {
+  const requestedTrack = tracks.find((track) => track.id === requestedTrackId);
+  if (requestedTrack && (requestedTrack.type === "text" || requestedTrack.type === "overlay")) return requestedTrack;
+
+  const mainIndex = tracks.findIndex((track) => track.role === "main" || track.type === "video");
+  const beforeMain = mainIndex >= 0 ? tracks.slice(0, mainIndex) : tracks;
+  const candidates = beforeMain.filter((track) => track.type === "text" || track.type === "overlay").reverse();
+  return candidates.find((track) => !trackHasOverlap(track, start, duration)) ?? candidates[0] ?? tracks.find((track) => track.type === "text") ?? tracks.find((track) => track.type === "overlay");
+}
+
+function trackHasOverlap(track, start, duration) {
+  const end = start + duration;
+  return (track.clips ?? []).some((clip) => start < clip.end && end > clip.start);
+}
+
+function resolveTextClipDuration(start, overrides = {}) {
+  const explicitEnd = Number(overrides.end);
+  if (Number.isFinite(explicitEnd) && explicitEnd > start) return explicitEnd - start;
+  const mediaDuration = Number(overrides.mediaDuration);
+  if (Number.isFinite(mediaDuration) && mediaDuration > 0) return mediaDuration;
+  const outPoint = Number(overrides.outPoint);
+  const inPoint = Number(overrides.inPoint ?? 0);
+  if (Number.isFinite(outPoint) && outPoint > inPoint) return outPoint - inPoint;
+  return 4;
 }
 
 function createTextClip(trackId, start) {

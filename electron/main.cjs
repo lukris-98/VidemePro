@@ -1092,6 +1092,70 @@ async function openExternalUrl(payload = {}) {
   return { ok: true };
 }
 
+function launchProcess(command, args = []) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
+    let settled = false;
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: false, error: error.message || "Gagal membuka aplikasi." });
+    });
+    child.once("spawn", () => {
+      if (settled) return;
+      settled = true;
+      child.unref();
+      resolve({ ok: true });
+    });
+  });
+}
+
+async function findShareXExecutable() {
+  const candidates = [
+    path.join(process.env.ProgramFiles || "C:\\Program Files", "ShareX", "ShareX.exe"),
+    path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "ShareX", "ShareX.exe"),
+    path.join(process.env.LOCALAPPDATA || "", "Programs", "ShareX", "ShareX.exe"),
+    path.join(process.env.LOCALAPPDATA || "", "ShareX", "ShareX.exe"),
+    path.join(process.env.USERPROFILE || "", "scoop", "apps", "sharex", "current", "ShareX.exe"),
+    path.join(process.env.ProgramData || "C:\\ProgramData", "chocolatey", "bin", "ShareX.exe")
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) return candidate;
+  }
+  const registryRoots = [
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+  ];
+  for (const root of registryRoots) {
+    const result = await runBinary("reg", ["query", root, "/s", "/f", "ShareX"], { timeoutMs: 5000 });
+    const text = `${result.stdout}\n${result.stderr}`;
+    const installMatch = text.match(/InstallLocation\s+REG_\w+\s+(.+)/i);
+    const iconMatch = text.match(/DisplayIcon\s+REG_\w+\s+(.+?ShareX\.exe)/i);
+    const registryCandidates = [
+      iconMatch?.[1]?.trim().replace(/^"|"$/g, ""),
+      installMatch?.[1] ? path.join(installMatch[1].trim().replace(/^"|"$/g, ""), "ShareX.exe") : ""
+    ].filter(Boolean);
+    for (const candidate of registryCandidates) {
+      if (await pathExists(candidate)) return candidate;
+    }
+  }
+  return "ShareX.exe";
+}
+
+async function openShareXRecorder() {
+  if (process.platform !== "win32") {
+    return { ok: false, error: "ShareX recorder hanya tersedia di Windows." };
+  }
+  const exe = await findShareXExecutable();
+  const result = await launchProcess(exe, ["-StartScreenRecorder"]);
+  if (result.ok) return { ok: true, command: exe };
+  return {
+    ok: false,
+    error: "ShareX tidak ditemukan. Buka ShareX manual atau pastikan ShareX terpasang di Program Files."
+  };
+}
+
 async function openUnifiedApiKeyFile() {
   await saveUnifiedApiKeyFile();
   shell.showItemInFolder(getUnifiedApiKeyFile());
@@ -1122,6 +1186,7 @@ ipcMain.handle("openrouter:key-remove", async (_event, payload) => removeOpenrou
 ipcMain.handle("openrouter:chat-complete", async (_event, payload) => completeOpenrouterChat(payload));
 ipcMain.handle("generated:save", async (_event, payload) => saveGeneratedAsset(payload));
 ipcMain.handle("shell:open-external", async (_event, payload) => openExternalUrl(payload));
+ipcMain.handle("sharex:open-recorder", async () => openShareXRecorder());
 ipcMain.handle("api-key-file:open", async () => openUnifiedApiKeyFile());
 ipcMain.handle("auto-fill-file:list", async () => ({ ok: true, path: getAutoFillFile(), items: await readAutoFillHistory() }));
 ipcMain.handle("auto-fill-file:save", async (_event, payload) => saveAutoFillHistory(payload));

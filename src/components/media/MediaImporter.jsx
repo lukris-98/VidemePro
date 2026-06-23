@@ -29,7 +29,6 @@ import {
   Upload,
   UserRound,
   Utensils,
-  Video,
   Wallpaper,
   MessageCircle,
   Smile,
@@ -350,13 +349,6 @@ export function MediaImporter({
           className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[var(--accent)] text-[#07111f] hover:bg-[var(--accent-strong)] active:translate-y-px"
         >
           <Upload size={15} />
-        </button>
-        <button
-          type="button"
-          title="Rekam"
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-white/25 text-white hover:bg-[var(--bg-hover)] active:translate-y-px"
-        >
-          <Video size={15} />
         </button>
         <label className="relative min-w-0 flex-1">
           <ModernSelect

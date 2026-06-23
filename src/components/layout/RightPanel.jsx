@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Archive, AudioLines, Camera, Download, Grid, Layers, Music, Plus, RefreshCw, ScanLine, ScanSearch, SlidersHorizontal } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Archive, AudioLines, Bold, Camera, ChevronRight, Download, Grid, Italic, Layers, Music, Plus, RefreshCw, ScanLine, ScanSearch, SlidersHorizontal, Underline } from "lucide-react";
 import { makeProxy } from "../../utils/cacheService.js";
 import { useMediaStore } from "../../store/mediaStore.js";
 import { usePlaybackStore } from "../../store/playbackStore.js";
@@ -21,12 +21,12 @@ const transitions = ["none", "crossDissolve", "fadeToBlack", "slideLeft", "wipeL
 const animations = ["none", "fadeIn", "slideUp", "slideDown", "typewriter", "bounce", "zoomIn"];
 
 function buildTabs(clipType, media) {
+  if (clipType === "text") return ["Teks", "Animasi", "Pelacakan", "Teks ke ucapan", "Avatar"];
   const tabs = ["Info"];
   if (clipType === "video" || clipType === "image") tabs.push("Video", "Filter");
   if (clipType === "audio") tabs.push("Audio FX");
   if ((clipType === "video" || clipType === "audio") && media) tabs.push("Commands");
   if (clipType === "video" || clipType === "audio") tabs.push("Export");
-  if (clipType === "text") tabs.push("Teks");
   if (clipType === "shape") tabs.push("Shape");
   if (clipType === "sticker") tabs.push("Sticker");
   tabs.push("Advanced");
@@ -52,6 +52,10 @@ export function RightPanel() {
   const [activeTab, setActiveTab] = useState("Info");
   const safeTab = tabs.includes(activeTab) ? activeTab : (tabs[0] || "Info");
 
+  useEffect(() => {
+    setActiveTab(clipType === "text" ? "Teks" : "Info");
+  }, [selectedClipId, clipType]);
+
   return (
     <aside className="flex min-h-0 flex-col bg-[var(--bg-panel)]">
       <div className="flex h-11 items-center justify-between border-b border-[var(--border)] px-4 text-sm font-semibold">
@@ -72,14 +76,18 @@ export function RightPanel() {
       <PreviewToolStrip />
 
       {clip && tabs.length > 1 && (
-        <div className="border-b border-[var(--border)] px-2 py-1.5">
+        <div className={`border-b border-[var(--border)] ${clipType === "text" ? "px-2 py-0" : "px-2 py-1.5"}`}>
           <HorizontalRail contentClassName="flex gap-0.5" buttonClassName="h-6">
           {tabs.map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`shrink-0 rounded px-2.5 py-1 text-[11px] font-medium transition ${safeTab === tab ? "bg-[var(--accent)] text-[#07111f]" : "text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"}`}
+              className={`shrink-0 px-2.5 text-[11px] font-semibold transition ${
+                clipType === "text"
+                  ? `h-10 border-b-2 ${safeTab === tab ? "border-cyan-400 text-cyan-300" : "border-transparent text-white hover:text-cyan-200"}`
+                  : `rounded py-1 ${safeTab === tab ? "bg-[var(--accent)] text-[#07111f]" : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-white"}`
+              }`}
             >
               {tab}
             </button>
@@ -237,6 +245,18 @@ function TabContent({ tab, clip, clipType, media, tracks, updateClip, updateMedi
           {clip.caption && <CaptionEditor clip={clip} tracks={tracks} updateClip={updateClip} />}
         </div>
       );
+
+    case "Animasi":
+      return <TextAnimationPanel clip={clip} updateClip={updateClip} />;
+
+    case "Pelacakan":
+      return <TextTrackingPanel clip={clip} updateClip={updateClip} />;
+
+    case "Teks ke ucapan":
+      return <TextUtilityPanel title="Teks ke ucapan" description="Gunakan tab AI untuk membuat suara dari teks terpilih." />;
+
+    case "Avatar":
+      return <TextUtilityPanel title="Avatar" description="Kontrol avatar akan mengikuti klip teks yang terseleksi." />;
 
     case "Sticker":
       return <StickerControls clip={clip} updateClip={updateClip} />;
@@ -747,27 +767,390 @@ function CaptionEditor({ clip, tracks, updateClip }) {
 }
 
 function TextControls({ clip, updateClip }) {
+  const set = (patch) => updateClip(clip.id, patch);
+  const textColor = normalizeColorValue(clip.color, "#ffffff");
+  const strokeColor = normalizeColorValue(clip.stroke, "#000000");
+  const [styleTab, setStyleTab] = useState("Dasar");
+  const fontSize = clip.fontSize ?? 48;
+  const characterSpacing = clip.letterSpacing ?? 0;
+  const lineValue = clip.lineHeight ?? 0;
+  const scale = Math.round((clip.scaleX ?? 1) * 100);
+  const posX = Math.round(((clip.posX ?? 0.5) - 0.5) * 100);
+  const posY = Math.round(((clip.posY ?? 0.85) - 0.85) * 100);
+  const stylePresets = [
+    { id: "none", label: "None", className: "border-cyan-400 text-white/50", patch: { color: "#ffffff", strokeWidth: 0, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "white-pop", label: "Aa", className: "bg-[#3b3b3b] text-white shadow-[0_2px_0_#111]", patch: { color: "#ffffff", stroke: "#000000", strokeWidth: 0, shadowColor: "#000000", shadowBlur: 7, shadowOpacity: 0.75, backgroundColor: "transparent" } },
+    { id: "outline", label: "Aa", className: "bg-[#454545] text-white [text-shadow:1px_1px_0_#000,-1px_1px_0_#000,1px_-1px_0_#000,-1px_-1px_0_#000]", patch: { color: "#ffffff", stroke: "#000000", strokeWidth: 4, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "soft", label: "Aa", className: "bg-[#525252] text-white", patch: { color: "#f8fafc", strokeWidth: 0, shadowColor: "#000000", shadowBlur: 3, shadowOpacity: 0.45, backgroundColor: "transparent" } },
+    { id: "dark", label: "Aa", className: "bg-[#303030] text-white shadow-[0_0_8px_#fff]", patch: { color: "#ffffff", strokeWidth: 0, shadowColor: "#ffffff", shadowBlur: 8, shadowOpacity: 0.55, backgroundColor: "transparent" } },
+    { id: "lime", label: "Aa", className: "bg-[#464646] text-lime-300", patch: { color: "#d7ff31", stroke: "#000000", strokeWidth: 2, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "red", label: "Aa", className: "bg-white text-red-500", patch: { color: "#ef4444", stroke: "#ffffff", strokeWidth: 3, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "orange", label: "Aa", className: "bg-white text-orange-500", patch: { color: "#f97316", stroke: "#ffffff", strokeWidth: 2, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "blue", label: "Aa", className: "bg-white text-sky-500", patch: { color: "#38bdf8", stroke: "#ffffff", strokeWidth: 2, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "green", label: "Aa", className: "bg-black text-green-400", patch: { color: "#22c55e", stroke: "#000000", strokeWidth: 2, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "gray-box", label: "Aa", className: "bg-[#8b8b8b] text-black", patch: { color: "#111111", strokeWidth: 0, shadowBlur: 0, backgroundColor: "#9ca3af" } },
+    { id: "yellow-box", label: "Aa", className: "bg-yellow-400 text-black", patch: { color: "#000000", strokeWidth: 0, shadowBlur: 0, backgroundColor: "#facc15" } },
+    { id: "purple-box", label: "Aa", className: "bg-violet-600 text-white", patch: { color: "#ffffff", strokeWidth: 0, shadowBlur: 0, backgroundColor: "#7c3aed" } },
+    { id: "violet", label: "Aa", className: "bg-white text-violet-600", patch: { color: "#7c3aed", stroke: "#ffffff", strokeWidth: 2, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "plain-black", label: "Aa", className: "bg-white text-black", patch: { color: "#000000", strokeWidth: 0, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "black-pop", label: "Aa", className: "bg-black text-white", patch: { color: "#ffffff", stroke: "#000000", strokeWidth: 2, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "neon-green", label: "Aa", className: "bg-black text-green-400 shadow-[0_0_8px_#22c55e]", patch: { color: "#22c55e", stroke: "#000000", strokeWidth: 2, shadowColor: "#22c55e", shadowBlur: 14, shadowOpacity: 0.8, backgroundColor: "transparent" } },
+    { id: "gold-red", label: "Aa", className: "bg-red-600 text-yellow-300", patch: { color: "#fde047", stroke: "#dc2626", strokeWidth: 3, shadowBlur: 0, backgroundColor: "transparent" } },
+    { id: "pink", label: "Aa", className: "bg-pink-600 text-white", patch: { color: "#ffffff", stroke: "#db2777", strokeWidth: 3, shadowBlur: 0, backgroundColor: "transparent" } }
+  ];
+
+  const applyCase = (mode) => {
+    const text = clip.text ?? "";
+    if (mode === "upper") set({ text: text.toUpperCase(), name: text.toUpperCase().trim() || "Text" });
+    if (mode === "lower") set({ text: text.toLowerCase(), name: text.toLowerCase().trim() || "Text" });
+    if (mode === "title") {
+      const next = text.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
+      set({ text: next, name: next.trim() || "Text" });
+    }
+  };
+
   return (
-    <Panel title="Teks">
-      <label className="grid gap-2">
-        <span className="text-xs text-[var(--text-muted)]">Isi teks</span>
-        <textarea
-          value={clip.text ?? ""}
-          onChange={(event) => updateClip(clip.id, { text: event.target.value })}
-          className="min-h-20 rounded-md border border-[var(--border)] bg-[#151515] p-2 text-white"
-        />
-      </label>
-      <Select label="Font" value={clip.fontFamily ?? "Arial"} options={["Arial", "Inter", "Helvetica", "Georgia", "Impact", "Verdana"]} onChange={(value) => updateClip(clip.id, { fontFamily: value })} />
-      <Range label={`Size ${clip.fontSize ?? 48}px`} min="18" max="120" step="1" value={clip.fontSize ?? 48} onChange={(value) => updateClip(clip.id, { fontSize: value })} />
-      <label className="grid grid-cols-[80px_1fr] items-center gap-3 text-xs">
-        <span className="text-[var(--text-muted)]">Color</span>
-        <input type="color" value={clip.color ?? "#ffffff"} onChange={(event) => updateClip(clip.id, { color: event.target.value })} className="h-9 w-full rounded-md border border-[var(--border)] bg-[#151515]" />
-      </label>
-      <Select label="Align" value={clip.align ?? "center"} options={["left", "center", "right"]} onChange={(value) => updateClip(clip.id, { align: value })} />
-      <Select label="Animasi" value={clip.animation ?? "none"} options={animations} onChange={(value) => updateClip(clip.id, { animation: value })} />
-      <Range label={`Anim ${clip.animDuration ?? 0.5}s`} min="0.1" max="3" step="0.1" value={clip.animDuration ?? 0.5} onChange={(value) => updateClip(clip.id, { animDuration: value })} />
-    </Panel>
+    <div className="space-y-3 text-xs">
+      <div className="grid grid-cols-3 gap-1 rounded-md bg-[#101010] p-1">
+        {["Dasar", "Gelembung", "Efek"].map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setStyleTab(tab)}
+            className={`h-7 rounded text-[11px] ${styleTab === tab ? "bg-[#3a3a3a] text-white" : "text-white/80 hover:bg-[#262626]"}`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        value={clip.text ?? ""}
+        onChange={(event) => set({ text: event.target.value, name: event.target.value.trim() || "Text" })}
+        className="min-h-[58px] w-full resize-none rounded-sm border border-[#1f1f1f] bg-[#141414] px-2 py-1.5 text-xs leading-5 text-white outline-none focus:border-cyan-400"
+        placeholder="Teks bawaan"
+      />
+
+      {styleTab === "Dasar" ? (
+        <>
+          <div className="text-xs text-white/85">Gaya preset</div>
+          <div className="grid grid-cols-7 gap-3">
+            {stylePresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                title={preset.id}
+                onClick={() => set(preset.patch)}
+                className={`grid h-10 w-10 place-items-center rounded-lg border border-transparent text-lg font-black leading-none hover:border-cyan-300 ${preset.className}`}
+              >
+                {preset.id === "none" ? <span className="h-6 w-6 rounded-full border border-current before:block before:h-px before:w-7 before:origin-left before:rotate-45 before:bg-current before:content-['']" /> : preset.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : styleTab === "Gelembung" ? (
+        <TextSection title="Latar belakang" checked={clip.backgroundColor && clip.backgroundColor !== "transparent"} onToggle={() => set({ backgroundColor: clip.backgroundColor && clip.backgroundColor !== "transparent" ? "transparent" : "rgba(15, 23, 42, 0.72)" })}>
+          <TextEditorRow label="Warna">
+            <input type="color" value={normalizeColorValue(clip.backgroundColor, "#111827")} onChange={(event) => set({ backgroundColor: event.target.value })} className="h-7 w-16 rounded border border-[#555] bg-[#2f2f2f] p-0.5" />
+          </TextEditorRow>
+          <TextEditorRow label="Padding">
+            <NumberStepper value={clip.padding ?? 8} min={0} max={48} onChange={(value) => set({ padding: value })} />
+          </TextEditorRow>
+        </TextSection>
+      ) : (
+        <>
+          <TextSection title="Coretan" checked={(clip.strokeWidth ?? 0) > 0} onToggle={() => set({ strokeWidth: clip.strokeWidth ? 0 : 3 })}>
+            <TextEditorRow label="Warna">
+              <input type="color" value={strokeColor} onChange={(event) => set({ stroke: event.target.value })} className="h-7 w-16 rounded border border-[#555] bg-[#2f2f2f] p-0.5" />
+            </TextEditorRow>
+            <TextEditorRow label="Ukuran">
+              <NumberStepper value={clip.strokeWidth ?? 0} min={0} max={12} onChange={(value) => set({ strokeWidth: value })} />
+            </TextEditorRow>
+          </TextSection>
+          <TextSection title="Bersinar" checked={(clip.shadowBlur ?? 0) > 0} onToggle={() => set({ shadowBlur: clip.shadowBlur ? 0 : 14, shadowColor: clip.shadowColor ?? textColor, shadowOpacity: clip.shadowOpacity ?? 0.8 })}>
+            <TextEditorRow label="Warna">
+              <input type="color" value={normalizeColorValue(clip.shadowColor, textColor)} onChange={(event) => set({ shadowColor: event.target.value })} className="h-7 w-16 rounded border border-[#555] bg-[#2f2f2f] p-0.5" />
+            </TextEditorRow>
+            <TextEditorRow label="Blur">
+              <NumberStepper value={clip.shadowBlur ?? 0} min={0} max={40} onChange={(value) => set({ shadowBlur: value })} />
+            </TextEditorRow>
+          </TextSection>
+        </>
+      )}
+
+      <TextSection title="Transformasi" open>
+        <TextEditorRow label="Font">
+          <select value={clip.fontFamily ?? "Arial"} onChange={(event) => set({ fontFamily: event.target.value })} className="h-7 w-full rounded bg-[#3a3a3a] px-2 text-xs text-white outline-none">
+            {["Sistem", "Arial", "Inter", "Helvetica", "Georgia", "Impact", "Verdana", "Courier New"].map((font) => (
+              <option key={font} value={font === "Sistem" ? "Arial" : font}>{font}</option>
+            ))}
+          </select>
+        </TextEditorRow>
+        <TextEditorRow label="Skala">
+          <div className="grid grid-cols-[1fr_64px] items-center gap-3">
+            <input type="range" min="10" max="300" step="1" value={scale} onChange={(event) => set({ scaleX: Number(event.target.value) / 100, scaleY: clip.uniformScale === false ? clip.scaleY ?? 1 : Number(event.target.value) / 100 })} className="accent-white" />
+            <NumberStepper value={scale} min={10} max={300} onChange={(value) => set({ scaleX: value / 100, scaleY: clip.uniformScale === false ? clip.scaleY ?? 1 : value / 100 })} suffix="%" />
+          </div>
+        </TextEditorRow>
+        <TextEditorRow label="Skala seragam">
+          <Toggle checked={clip.uniformScale !== false} onChange={(checked) => set({ uniformScale: checked, scaleY: checked ? clip.scaleX ?? 1 : clip.scaleY ?? 1 })} />
+        </TextEditorRow>
+        <div className="grid grid-cols-2 gap-3">
+          <TextEditorRow label="X">
+            <NumberStepper value={posX} min={-50} max={50} onChange={(value) => set({ posX: 0.5 + value / 100 })} />
+          </TextEditorRow>
+          <TextEditorRow label="Y">
+            <NumberStepper value={posY} min={-85} max={15} onChange={(value) => set({ posY: 0.85 + value / 100 })} />
+          </TextEditorRow>
+        </div>
+        <TextEditorRow label="Rotasi datar">
+          <NumberStepper value={clip.rotation ?? 0} min={-180} max={180} onChange={(value) => set({ rotation: value })} suffix="deg" />
+        </TextEditorRow>
+        <TextEditorRow label="Pola">
+          <div className="flex gap-2">
+            <IconToggle active={clip.fontWeight === "bold"} onClick={() => set({ fontWeight: clip.fontWeight === "bold" ? "normal" : "bold" })}><Bold size={14} /></IconToggle>
+            <IconToggle active={clip.underline === true} onClick={() => set({ underline: !clip.underline })}><Underline size={14} /></IconToggle>
+            <IconToggle active={clip.italic === true} onClick={() => set({ italic: !clip.italic })}><Italic size={14} /></IconToggle>
+            <div className="flex overflow-hidden rounded bg-[#3a3a3a]">
+              <CaseButton onClick={() => applyCase("upper")}>TT</CaseButton>
+              <CaseButton onClick={() => applyCase("lower")}>tt</CaseButton>
+              <CaseButton onClick={() => applyCase("title")}>Tt</CaseButton>
+            </div>
+          </div>
+        </TextEditorRow>
+      </TextSection>
+
+      <TextSection title="Campuran" checked open>
+        <TextEditorRow label="Opacity">
+          <div className="grid grid-cols-[1fr_64px] items-center gap-3">
+            <input type="range" min="0" max="1" step="0.01" value={clip.opacity ?? 1} onChange={(event) => set({ opacity: Number(event.target.value) })} className="accent-white" />
+            <NumberStepper value={Math.round((clip.opacity ?? 1) * 100)} min={0} max={100} onChange={(value) => set({ opacity: value / 100 })} suffix="%" />
+          </div>
+        </TextEditorRow>
+      </TextSection>
+
+      <div className="grid grid-cols-2 gap-3">
+        <TextEditorRow label="Karakter">
+          <NumberStepper value={characterSpacing} min={-2} max={16} onChange={(value) => set({ letterSpacing: value })} />
+        </TextEditorRow>
+        <TextEditorRow label="Garis">
+          <NumberStepper value={lineValue} min={0} max={100} onChange={(value) => set({ lineHeight: value })} />
+        </TextEditorRow>
+      </div>
+
+      <TextEditorRow label="Penyelarasan">
+        <div className="flex overflow-hidden rounded bg-[#3a3a3a]">
+          <AlignButton active={(clip.align ?? "center") === "left"} onClick={() => set({ align: "left" })}><AlignLeft size={14} /></AlignButton>
+          <AlignButton active={(clip.align ?? "center") === "center"} onClick={() => set({ align: "center" })}><AlignCenter size={14} /></AlignButton>
+          <AlignButton active={(clip.align ?? "center") === "right"} onClick={() => set({ align: "right" })}><AlignRight size={14} /></AlignButton>
+          <AlignButton active={clip.align === "justify"} onClick={() => set({ align: "justify" })}><AlignJustify size={14} /></AlignButton>
+        </div>
+      </TextEditorRow>
+
+      <div className="border-t border-[#333] pt-3">
+        <button type="button" className="ml-auto block h-7 rounded bg-cyan-500 px-3 text-[11px] font-bold text-white hover:bg-cyan-400">
+          Simpan sebagai preset
+        </button>
+      </div>
+    </div>
   );
+}
+
+function TextAnimationPanel({ clip, updateClip }) {
+  const set = (patch) => updateClip(clip.id, patch);
+  const [tab, setTab] = useState("Animasi masuk");
+  const configs = {
+    "Animasi masuk": {
+      field: "animationIn",
+      durationField: "animationInDuration",
+      fallback: clip.animation ?? "fadeIn",
+      defaultDuration: clip.animDuration ?? 0.5,
+      presets: [
+        { id: "none", label: "Tidak ada" },
+        { id: "fadeIn", label: "Fade" },
+        { id: "slideUp", label: "Naik" },
+        { id: "slideDown", label: "Turun" },
+        { id: "zoomIn", label: "Zoom" },
+        { id: "typewriter", label: "Ketik" }
+      ]
+    },
+    Ulang: {
+      field: "animationLoop",
+      durationField: "animationLoopDuration",
+      fallback: clip.animationLoop ?? "none",
+      defaultDuration: clip.animationLoopDuration ?? 1.2,
+      presets: [
+        { id: "none", label: "Tidak ada" },
+        { id: "bounce", label: "Bounce" },
+        { id: "pulse", label: "Pulse" },
+        { id: "float", label: "Float" },
+        { id: "flicker", label: "Flicker" }
+      ]
+    },
+    Keluar: {
+      field: "animationOut",
+      durationField: "animationOutDuration",
+      fallback: clip.animationOut ?? "none",
+      defaultDuration: clip.animationOutDuration ?? 0.5,
+      presets: [
+        { id: "none", label: "Tidak ada" },
+        { id: "fadeOut", label: "Fade" },
+        { id: "slideUpOut", label: "Naik" },
+        { id: "slideDownOut", label: "Turun" },
+        { id: "zoomOut", label: "Zoom" }
+      ]
+    }
+  };
+  const config = configs[tab];
+  const selected = clip[config.field] ?? config.fallback;
+  const duration = clip[config.durationField] ?? config.defaultDuration;
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="grid grid-cols-3 gap-1 rounded-md bg-[#101010] p-1">
+        {Object.keys(configs).map((item) => (
+          <button key={item} type="button" onClick={() => setTab(item)} className={`h-7 rounded text-[11px] ${tab === item ? "bg-[#3a3a3a] text-white" : "text-white/80 hover:bg-[#262626]"}`}>
+            {item}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {config.presets.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => {
+              const patch = { [config.field]: preset.id, [config.durationField]: duration };
+              if (tab === "Animasi masuk") patch.animation = preset.id;
+              set(patch);
+            }}
+            className={`h-16 rounded-md border text-[11px] font-semibold ${selected === preset.id ? "border-cyan-400 bg-cyan-500/20 text-cyan-200" : "border-[#303030] bg-[#1a1a1a] text-white hover:bg-[#242424]"}`}
+          >
+            <span className="mx-auto mb-1 grid h-7 w-7 place-items-center rounded bg-[#303030] text-base">Aa</span>
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      <TextEditorRow label="Durasi">
+        <div className="grid grid-cols-[1fr_64px] items-center gap-3">
+          <input type="range" min="0.1" max="4" step="0.1" value={duration} onChange={(event) => set({ [config.durationField]: Number(event.target.value), ...(tab === "Animasi masuk" ? { animDuration: Number(event.target.value) } : {}) })} className="accent-cyan-400" />
+          <NumberStepper value={duration} min={0.1} max={4} step={0.1} onChange={(value) => set({ [config.durationField]: value, ...(tab === "Animasi masuk" ? { animDuration: value } : {}) })} suffix="s" />
+        </div>
+      </TextEditorRow>
+      {tab === "Ulang" ? (
+        <TextEditorRow label="Intensitas">
+          <NumberStepper value={clip.animationLoopIntensity ?? 1} min={0.1} max={3} step={0.1} onChange={(value) => set({ animationLoopIntensity: value })} />
+        </TextEditorRow>
+      ) : null}
+    </div>
+  );
+}
+
+function TextTrackingPanel({ clip, updateClip }) {
+  const set = (patch) => updateClip(clip.id, patch);
+  return (
+    <div className="space-y-3 text-xs">
+      <Range label={`Opacity ${Math.round((clip.opacity ?? 1) * 100)}%`} min="0" max="1" step="0.05" value={clip.opacity ?? 1} onChange={(value) => set({ opacity: value })} />
+      <Range label={`Rotasi ${clip.rotation ?? 0}deg`} min="-180" max="180" step="1" value={clip.rotation ?? 0} onChange={(value) => set({ rotation: value })} />
+      <Range label={`X ${Math.round((clip.posX ?? 0.5) * 100)}%`} min="0" max="1" step="0.01" value={clip.posX ?? 0.5} onChange={(value) => set({ posX: value })} />
+      <Range label={`Y ${Math.round((clip.posY ?? 0.85) * 100)}%`} min="0" max="1" step="0.01" value={clip.posY ?? 0.85} onChange={(value) => set({ posY: value })} />
+    </div>
+  );
+}
+
+function TextUtilityPanel({ title, description }) {
+  return (
+    <div className="rounded-md border border-[#2a2a2a] bg-[#171717] p-3 text-xs">
+      <div className="font-semibold text-white">{title}</div>
+      <p className="mt-2 leading-5 text-[var(--text-muted)]">{description}</p>
+    </div>
+  );
+}
+
+function TextEditorRow({ label, children }) {
+  return (
+    <label className="grid grid-cols-[96px_1fr] items-center gap-3 text-xs">
+      <span className="text-white/85">{label}</span>
+      <div className="min-w-0">{children}</div>
+    </label>
+  );
+}
+
+function NumberStepper({ value, min, max, step = 1, suffix = "", onChange }) {
+  const numeric = Number(value) || 0;
+  const clamp = (next) => Math.max(min, Math.min(max, Number(next) || 0));
+  return (
+    <div className="grid h-7 grid-cols-[1fr_18px] overflow-hidden rounded bg-[#2f2f2f] text-white">
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={numeric}
+        onChange={(event) => onChange(clamp(event.target.value))}
+        className="min-w-0 bg-transparent px-2 text-center text-xs outline-none"
+      />
+      <div className="grid border-l border-black/25">
+        <button type="button" onClick={() => onChange(clamp(numeric + step))} className="text-[9px] leading-none hover:bg-white/10">^</button>
+        <button type="button" onClick={() => onChange(clamp(numeric - step))} className="text-[9px] leading-none hover:bg-white/10">v</button>
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange }) {
+  return (
+    <button type="button" onClick={() => onChange(!checked)} className={`ml-auto flex h-5 w-9 items-center rounded-full p-0.5 transition ${checked ? "bg-cyan-400" : "bg-[#3a3a3a]"}`}>
+      <span className={`h-4 w-4 rounded-full bg-white transition ${checked ? "translate-x-4" : "translate-x-0"}`} />
+    </button>
+  );
+}
+
+function TextSection({ title, checked, open = false, onToggle, children }) {
+  return (
+    <section className="border-t border-[#303030] pt-3">
+      <div className="mb-3 flex items-center justify-between">
+        <button type="button" onClick={onToggle} className="flex items-center gap-2 text-xs font-semibold text-white">
+          {typeof checked === "boolean" ? <span className={`h-3 w-3 rounded ${checked ? "bg-cyan-400" : "bg-[#5a5a5a]"}`} /> : null}
+          {title}
+          <span className="text-[9px] text-white/45">^</span>
+        </button>
+        <div className="flex items-center gap-2 text-white/35">
+          <RefreshCw size={13} />
+          <ChevronRight size={13} />
+        </div>
+      </div>
+      {open || checked ? <div className="space-y-3">{children}</div> : null}
+    </section>
+  );
+}
+
+function IconToggle({ active, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} className={`grid h-7 w-9 place-items-center rounded text-white ${active ? "bg-[#575757]" : "bg-[#3a3a3a] hover:bg-[#4a4a4a]"}`}>
+      {children}
+    </button>
+  );
+}
+
+function CaseButton({ onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} className="h-7 w-11 text-[11px] font-bold text-white hover:bg-[#505050]">
+      {children}
+    </button>
+  );
+}
+
+function AlignButton({ active, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} className={`grid h-7 w-9 place-items-center ${active ? "bg-[#575757] text-white" : "text-white/75 hover:bg-[#505050] hover:text-white"}`}>
+      {children}
+    </button>
+  );
+}
+
+
+function normalizeColorValue(value, fallback) {
+  return /^#[0-9a-f]{6}$/i.test(value ?? "") ? value : fallback;
 }
 
 function TransitionControls({ clip, updateClip }) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Download, FolderOpen, Menu, Share2, X } from "lucide-react";
+import { Download, FolderOpen, Menu, Share2, Video, X } from "lucide-react";
 import vidmeLogo from "../../assets/vidme-logo.png";
 import { useProjectStore } from "../../store/projectStore.js";
 import { useUiStore } from "../../store/uiStore.js";
@@ -144,6 +144,7 @@ export function TopBar({ leftWidth = 420, rightWidth = 420 }) {
   const [editingProjectName, setEditingProjectName] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState(projectName);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [recordStatus, setRecordStatus] = useState("");
   const projectNameInputRef = useRef(null);
 
   useEffect(() => {
@@ -159,6 +160,21 @@ export function TopBar({ leftWidth = 420, rightWidth = 420 }) {
   const commitProjectName = () => {
     setProjectName(projectNameDraft);
     setEditingProjectName(false);
+  };
+
+  const handleRecordClick = async () => {
+    setRecordStatus("");
+    try {
+      const openRecorder = window.videmeNative?.sharex?.openRecorder;
+      if (!openRecorder) {
+        setRecordStatus("ShareX recorder tersedia di desktop app.");
+        return;
+      }
+      const result = await openRecorder();
+      setRecordStatus(result?.ok ? "ShareX recorder dibuka." : result?.error || "Gagal membuka ShareX.");
+    } catch (error) {
+      setRecordStatus(error instanceof Error ? error.message : "Gagal membuka ShareX.");
+    }
   };
 
   return (
@@ -181,9 +197,19 @@ export function TopBar({ leftWidth = 420, rightWidth = 420 }) {
         >
           <span className="bg-gradient-to-r from-[#2f8cff] via-[#9a63ff] to-[#00b86b] bg-clip-text text-transparent">Seting</span>
         </button>
+        <button
+          type="button"
+          onClick={handleRecordClick}
+          className="flex h-7 items-center gap-1.5 rounded-md border border-red-400/50 bg-red-500/10 px-2.5 text-xs font-bold text-red-100 hover:bg-red-500/20 hover:text-white active:translate-y-px"
+          title="Buka ShareX screen recorder"
+        >
+          <Video size={14} />
+          Rekam
+        </button>
         <IconButton title="Menu">
           <Menu size={18} />
         </IconButton>
+        {recordStatus ? <span className="max-w-[180px] truncate text-[10px] text-[var(--text-muted)]" title={recordStatus}>{recordStatus}</span> : null}
       </div>
       <div className="col-start-3 flex min-w-0 items-center justify-center">
         {editingProjectName ? (

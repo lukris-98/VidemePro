@@ -259,7 +259,6 @@ export function Timeline() {
   const currentTime = usePlaybackStore((state) => state.currentTime);
   const fps = usePlaybackStore((state) => state.fps);
   const pausePlayback = usePlaybackStore((state) => state.pause);
-  const playPlayback = usePlaybackStore((state) => state.play);
   const setPlaybackDuration = usePlaybackStore((state) => state.setDuration);
   const snapEnabled = useUiStore((state) => state.snapEnabled);
   const toggleSnap = useUiStore((state) => state.toggleSnap);
@@ -341,13 +340,6 @@ export function Timeline() {
     setPreviewMedia(null);
     pausePlayback();
     seekFromPointer(event, scrollRef.current);
-  };
-
-  const handleSeekAndPlay = (event) => {
-    if (!scrollRef.current) return;
-    setPreviewMedia(null);
-    seekFromPointer(event, scrollRef.current);
-    playPlayback();
   };
 
   const handleDropMedia = (event, trackId) => {
@@ -460,7 +452,6 @@ export function Timeline() {
     const wasDraggingPlayhead = draggingPlayhead;
     setDraggingPlayhead(false);
     if (wasDraggingPlayhead) {
-      playPlayback();
       return;
     }
     if (!marqueeRef.current) return;
@@ -472,7 +463,7 @@ export function Timeline() {
       setTimelineSelection(selected);
     } else {
       if (event?.target && scrollRef.current?.contains(event.target)) {
-        handleSeekAndPlay(event);
+        handleSeek(event);
       }
       deselectAll();
       setTimelineSelection([]);
@@ -641,7 +632,7 @@ export function Timeline() {
               />
             ))}
             {marquee ? <MarqueeBox marquee={marquee} /> : null}
-            <Playhead currentTime={currentTime} pixelsPerSecond={pixelsPerSecond} height={totalHeight - 4} />
+            <Playhead currentTime={currentTime} pixelsPerSecond={pixelsPerSecond} height={totalHeight - 4} scrollTop={viewport.top} />
           </div>
         </div>
       </div>

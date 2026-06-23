@@ -188,10 +188,7 @@ function drawClipFrame(ctx, width, height, clip, mediaItems, videoElement, time,
 
 function drawTextClip(ctx, width, height, clip, time) {
   const elapsed = Math.max(0, time - clip.start);
-  const duration = Math.max(0.01, clip.animDuration ?? 0.5);
-  const progress = Math.min(elapsed / duration, 1);
-  const preset = getTextAnimation(clip.animation || "none");
-  const anim = preset(progress, clip.text || "");
+  const anim = resolveTextAnimation(clip, elapsed);
   const x = (clip.posX ?? 0.5) * width;
   const y = (clip.posY ?? 0.85) * height + (anim.offsetY ?? 0);
   const displayText = anim.visibleChars !== undefined ? (clip.text || "").slice(0, anim.visibleChars) : clip.text || "";
@@ -200,12 +197,13 @@ function drawTextClip(ctx, width, height, clip, time) {
   ctx.globalAlpha = (anim.opacity ?? 1) * (clip.opacity ?? 1);
   ctx.translate(x, y);
   ctx.rotate(((clip.rotation ?? 0) * Math.PI) / 180);
-  ctx.scale(anim.scale ?? 1, anim.scale ?? 1);
+  ctx.scale((clip.scaleX ?? 1) * (anim.scale ?? 1), (clip.scaleY ?? 1) * (anim.scale ?? 1));
   const fontSize = clip.fontSize ?? 48;
   const fontFamily = clip.fontFamily ?? "Arial";
   const fontWeight = clip.fontWeight ?? "bold";
+  const fontStyle = clip.italic ? "italic" : "normal";
   const letterSpacing = clip.letterSpacing ?? 0;
-  ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+  ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
   ctx.fillStyle = clip.color ?? "#ffffff";
   ctx.textAlign = clip.align ?? "center";
   ctx.textBaseline = "alphabetic";
@@ -234,7 +232,39 @@ function drawTextClip(ctx, width, height, clip, time) {
     drawSpacedText(ctx, displayText, 0, 0, letterSpacing, true);
   }
   drawSpacedText(ctx, displayText, 0, 0, letterSpacing, false);
+  if (clip.underline) drawTextUnderline(ctx, textWidth, fontSize);
   ctx.restore();
+}
+
+function resolveTextAnimation(clip, elapsed) {
+  const text = clip.text || "";
+  const inName = clip.animationIn ?? clip.animation ?? "none";
+  const inDuration = Math.max(0.01, clip.animationInDuration ?? clip.animDuration ?? 0.5);
+  if (inName !== "none" && elapsed < inDuration) {
+    return getTextAnimation(inName)(Math.min(elapsed / inDuration, 1), text);
+  }
+
+  const outName = clip.animationOut ?? "none";
+  const outDuration = Math.max(0.01, clip.animationOutDuration ?? 0.5);
+  const remaining = Math.max(0, (clip.end ?? 0) - (clip.start ?? 0) - elapsed);
+  if (outName !== "none" && remaining < outDuration) {
+    return getTextAnimation(outName)(Math.min(1 - remaining / outDuration, 1), text);
+  }
+
+  const loopName = clip.animationLoop ?? "none";
+  if (loopName !== "none") {
+    const loopDuration = Math.max(0.01, clip.animationLoopDuration ?? 1.2);
+    const progress = ((elapsed - inDuration) % loopDuration) / loopDuration;
+    const anim = getTextAnimation(loopName)(progress, text);
+    const intensity = clip.animationLoopIntensity ?? 1;
+    return {
+      ...anim,
+      offsetY: (anim.offsetY ?? 0) * intensity,
+      scale: 1 + ((anim.scale ?? 1) - 1) * intensity
+    };
+  }
+
+  return { opacity: 1, offsetY: 0, scale: 1 };
 }
 
 function measureSpacedText(ctx, text, letterSpacing = 0) {
@@ -263,6 +293,20 @@ function drawSpacedText(ctx, text, x, y, letterSpacing, stroke) {
     else ctx.fillText(character, cursor, y);
     cursor += ctx.measureText(character).width + letterSpacing;
   }
+  ctx.restore();
+}
+
+function drawTextUnderline(ctx, width, fontSize) {
+  const offset = textAlignOffset(ctx.textAlign, width);
+  const y = Math.max(2, fontSize * 0.12);
+  ctx.save();
+  ctx.shadowColor = "transparent";
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.lineWidth = Math.max(1, fontSize * 0.06);
+  ctx.beginPath();
+  ctx.moveTo(offset, y);
+  ctx.lineTo(offset + width, y);
+  ctx.stroke();
   ctx.restore();
 }
 
