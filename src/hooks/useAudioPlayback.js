@@ -39,6 +39,7 @@ export function useAudioPlayback({ isPlaying, currentTime, tracks, mediaItems })
         for (const clip of track.clips) {
           if (clip.end <= timelineStart) continue;
           if (track.type === "video" && clip.linkedItemId) continue;
+          if (track.type === "video" && clip.hasAudio === false) continue;
           const media = mediaItems.find((item) => item.id === clip.mediaId);
           if (!media?.file || (!media.type.startsWith?.("audio") && media.type !== "audio" && media.type !== "video")) continue;
           const buffer = await getAudioBuffer(audioContext, media.file);

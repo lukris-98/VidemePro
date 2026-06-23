@@ -1,16 +1,33 @@
 import React, { memo, useMemo } from "react";
+import { Film } from "lucide-react";
 import { Clip } from "./Clip.jsx";
 
-export const TrackLane = memo(function TrackLane({ track, pixelsPerSecond, width, height, viewportStart, viewportEnd, onDropMedia, onDragMediaOver, ghost, playheadTime }) {
+export const TrackLane = memo(function TrackLane({
+  track,
+  pixelsPerSecond,
+  width,
+  height,
+  viewportStart,
+  viewportEnd,
+  onDropMedia,
+  onDragMediaOver,
+  ghost,
+  playheadTime,
+  isTimelineEmpty = false,
+  stickMainTrack = false,
+  stickyTop = 32,
+  onOpenClipContextMenu
+}) {
   const visibleClips = useMemo(
     () => track.clips.filter((clip) => clip.end >= viewportStart && clip.start <= viewportEnd),
     [track.clips, viewportEnd, viewportStart]
   );
+  const stickyStyle = track.role === "main" && stickMainTrack ? { position: "sticky", top: stickyTop, bottom: 0, zIndex: 14 } : null;
 
   return (
     <div
       className={`relative border-b border-[var(--border-soft)] hover:bg-[#111] ${track.buffer ? "bg-[#0b0b0b]" : "bg-[#0d0d0d]"}`}
-      style={{ width, height }}
+      style={{ width, height, ...stickyStyle }}
       onDragOver={(event) => {
         if (track.locked) return;
         event.preventDefault();
@@ -21,6 +38,7 @@ export const TrackLane = memo(function TrackLane({ track, pixelsPerSecond, width
         if (!track.locked) onDropMedia(event, track.id);
       }}
     >
+      {track.role === "main" && isTimelineEmpty ? <MainTrackEmptyState width={width} height={height} /> : null}
       {track.role === "main" ? <MainTrackGaps clips={track.clips} pixelsPerSecond={pixelsPerSecond} height={height} /> : null}
       {ghost?.trackId === track.id ? (
         <div
@@ -37,11 +55,23 @@ export const TrackLane = memo(function TrackLane({ track, pixelsPerSecond, width
         />
       ) : null}
       {visibleClips.map((clip) => (
-        <Clip key={clip.id} clip={clip} track={track} pixelsPerSecond={pixelsPerSecond} playheadTime={playheadTime} />
+        <Clip key={clip.id} clip={clip} track={track} pixelsPerSecond={pixelsPerSecond} playheadTime={playheadTime} onOpenContextMenu={onOpenClipContextMenu} />
       ))}
     </div>
   );
 });
+
+function MainTrackEmptyState({ width, height }) {
+  return (
+    <div
+      className="pointer-events-none absolute left-3 top-2 z-[1] flex items-center gap-3 rounded border border-dashed border-white/10 bg-white/[0.03] px-4 text-xs text-[var(--text-secondary)]"
+      style={{ width: Math.max(220, width - 24), height: Math.max(28, height - 16) }}
+    >
+      <Film size={15} className="shrink-0 text-[var(--text-muted)]" />
+      <span>Ayo mulai berkreasi, seret materi ke sini.</span>
+    </div>
+  );
+}
 
 function MainTrackGaps({ clips, pixelsPerSecond, height }) {
   const gaps = useMemo(() => {

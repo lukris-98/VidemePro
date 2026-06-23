@@ -4,6 +4,7 @@ import { emitEvent } from "../utils/eventBus.js";
 import {
   DEFAULT_TIMELINE_FPS,
   MAIN_TRACK_ID,
+  createTrack,
   ensureTimelineBuffers,
   normalizeClipFrames,
   normalizeTracks,
@@ -123,20 +124,28 @@ export const useProjectStore = create((set, get) => ({
     }),
   addClip: (trackId, clip) =>
     set((state) => {
-      const resolvedTrackId = selectAutoTrack(state.tracks, clip.type ?? clip.mediaType, trackId);
-      const targetTrack = state.tracks.find((track) => track.id === resolvedTrackId);
-      if (!targetTrack) return state;
       const inferredDuration = Math.max(0.1, (clip.end ?? 0) - (clip.start ?? 0));
       const mediaDuration = clip.mediaDuration ?? clip.duration ?? inferredDuration ?? 5;
       const start = Math.max(0, clip.start ?? 0);
       const requestedEnd = clip.end ?? start + mediaDuration;
       const end = Math.max(start + 0.1, requestedEnd);
-      const safeStart = findAvailableStart(targetTrack.clips, start, end - start);
+      let nextTracks = state.tracks;
+      let resolvedTrackId = selectAutoTrack(nextTracks, clip.type ?? clip.mediaType, trackId);
+      const requestedTrack = nextTracks.find((track) => track.id === resolvedTrackId);
+      const duration = end - start;
+      if (isMainVisualClip(clip) && requestedTrack?.role === "main" && trackHasOverlap(requestedTrack, start, duration)) {
+        const overlaySelection = selectVisualOverlayTrack(nextTracks, start, duration);
+        resolvedTrackId = overlaySelection.track.id;
+        nextTracks = overlaySelection.tracks;
+      }
+      const targetTrack = nextTracks.find((track) => track.id === resolvedTrackId);
+      if (!targetTrack) return state;
+      const safeStart = findAvailableStart(targetTrack.clips, start, duration);
       const nextClip = {
         id: clip.id ?? crypto.randomUUID(),
         trackId: resolvedTrackId,
         start: safeStart,
-        end: safeStart + (end - start),
+        end: safeStart + duration,
         offset: clip.offset ?? 0,
         inPoint: clip.inPoint ?? 0,
         outPoint: clip.outPoint ?? mediaDuration,
@@ -166,14 +175,13 @@ export const useProjectStore = create((set, get) => ({
         ...clip
       };
       nextClip.start = safeStart;
-      nextClip.end = safeStart + (end - start);
+      nextClip.end = safeStart + duration;
       const normalizedClip = normalizeClipFrames(nextClip, state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
-      const tracks = state.tracks.map((track) =>
+      const tracks = nextTracks.map((track) =>
         track.id === resolvedTrackId ? { ...track, buffer: false, clips: [...track.clips, normalizedClip] } : track
       );
-      const tracksWithAudio = addLinkedAudioCompanion(tracks, normalizedClip, clip, state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
       emitEvent("timeline:item-added", { item: normalizedClip, trackId: resolvedTrackId });
-      return commitState(state, { tracks: tracksWithAudio, duration: recalcDuration(tracksWithAudio), selectedClipId: normalizedClip.id });
+      return commitState(state, { tracks, duration: recalcDuration(tracks), selectedClipId: normalizedClip.id });
     }),
   removeClip: (clipId) =>
     set((state) => {
@@ -378,32 +386,35 @@ export const useProjectStore = create((set, get) => ({
     }),
   addStickerClip: (stickerId, start = 0) =>
     set((state) => {
-      const overlayTrack = state.tracks.find((track) => track.type === "overlay") ?? state.tracks[0];
+      const overlaySelection = selectVisualOverlayTrack(state.tracks, start, 4);
+      const overlayTrack = overlaySelection.track;
       const sticker = builtinStickers.find((item) => item.id === stickerId) ?? builtinStickers[0];
       if (!overlayTrack || !sticker) return state;
       const clip = normalizeClipFrames(createStickerClip(overlayTrack.id, sticker, start), state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
-      const tracks = state.tracks.map((track) =>
+      const tracks = overlaySelection.tracks.map((track) =>
         track.id === overlayTrack.id ? { ...track, clips: [...track.clips, clip] } : track
       );
       return commitState(state, { tracks, duration: recalcDuration(tracks), selectedClipId: clip.id });
     }),
   addShapeClip: (shapeId = "rectangle", start = 0) =>
     set((state) => {
-      const overlayTrack = state.tracks.find((track) => track.type === "overlay") ?? state.tracks[0];
+      const overlaySelection = selectVisualOverlayTrack(state.tracks, start, 4);
+      const overlayTrack = overlaySelection.track;
       const preset = shapePresets.find((item) => item.id === shapeId) ?? shapePresets[0];
       if (!overlayTrack || !preset) return state;
       const clip = normalizeClipFrames(createShapeClip(overlayTrack.id, preset, start), state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
-      const tracks = state.tracks.map((track) =>
+      const tracks = overlaySelection.tracks.map((track) =>
         track.id === overlayTrack.id ? { ...track, clips: [...track.clips, clip] } : track
       );
       return commitState(state, { tracks, duration: recalcDuration(tracks), selectedClipId: clip.id });
     }),
   addOverlayTemplate: (templateType = "shape", start = 0) =>
     set((state) => {
-      const overlayTrack = state.tracks.find((track) => track.type === "overlay") ?? state.tracks[0];
+      const overlaySelection = selectVisualOverlayTrack(state.tracks, start, 4);
+      const overlayTrack = overlaySelection.track;
       if (!overlayTrack) return state;
       const clip = normalizeClipFrames(createOverlayTemplateClip(overlayTrack.id, templateType, start), state.timeline?.fps ?? DEFAULT_TIMELINE_FPS);
-      const tracks = state.tracks.map((track) =>
+      const tracks = overlaySelection.tracks.map((track) =>
         track.id === overlayTrack.id ? { ...track, buffer: false, clips: [...track.clips, clip] } : track
       );
       return commitState(state, { tracks, duration: recalcDuration(tracks), selectedClipId: clip.id });
@@ -719,6 +730,26 @@ function selectTextTrackNearMain(tracks, start, duration, requestedTrackId = nul
   return candidates.find((track) => !trackHasOverlap(track, start, duration)) ?? candidates[0] ?? tracks.find((track) => track.type === "text") ?? tracks.find((track) => track.type === "overlay");
 }
 
+function selectVisualOverlayTrack(tracks, start, duration) {
+  const mainIndex = tracks.findIndex((track) => track.role === "main" || track.type === "video");
+  const beforeMain = mainIndex >= 0 ? tracks.slice(0, mainIndex) : tracks;
+  const candidates = beforeMain.filter((track) => track.type === "overlay").reverse();
+  const available = candidates.find((track) => !trackHasOverlap(track, start, duration));
+  if (available) return { track: available, tracks };
+
+  const count = tracks.filter((track) => track.type === "overlay").length + 1;
+  const track = createTrack("overlay", count, { buffer: false, name: `Overlay ${count}` });
+  const nextTracks = [...tracks];
+  const insertAt = mainIndex >= 0 ? mainIndex : nextTracks.length;
+  nextTracks.splice(insertAt, 0, track);
+  return { track, tracks: nextTracks };
+}
+
+function isMainVisualClip(clip) {
+  const type = clip.type ?? clip.mediaType;
+  return type === "video" || type === "image" || type === "photo";
+}
+
 function trackHasOverlap(track, start, duration) {
   const end = start + duration;
   return (track.clips ?? []).some((clip) => start < clip.end && end > clip.start);
@@ -758,8 +789,8 @@ function createTextClip(trackId, start) {
     align: "center",
     posX: 0.5,
     posY: 0.85,
-    animation: "fadeIn",
-    animDuration: 0.5,
+    animation: "none",
+    animDuration: 0,
     rotation: 0,
     opacity: 1,
     stroke: "#000000",
@@ -786,8 +817,8 @@ function createStickerClip(trackId, sticker, start) {
     scaleY: 0.22,
     rotation: 0,
     opacity: 1,
-    animation: "bounce",
-    animDuration: 0.5,
+    animation: "none",
+    animDuration: 0,
     timelineColor: "var(--clip-text)"
   };
 }

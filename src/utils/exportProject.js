@@ -87,6 +87,7 @@ async function renderFrame(ctx, width, height, time, tracks, mediaItems, imageCa
     if (track.type === "overlay") {
       for (const clip of track.clips.filter((item) => time >= item.start && time <= item.end)) {
         if (clip.type === "shape") drawShapeClip(ctx, width, height, clip, time);
+        else if (isMediaClip(clip)) await drawSingleClip(ctx, width, height, clip, time, mediaItems, imageCache, videoCache);
         else drawStickerClip(ctx, width, height, clip, time, stickerCache);
       }
       continue;
@@ -100,6 +101,10 @@ async function renderFrame(ctx, width, height, time, tracks, mediaItems, imageCa
     if (!clip) continue;
     await drawSingleClip(ctx, width, height, clip, time, mediaItems, imageCache, videoCache);
   }
+}
+
+function isMediaClip(clip) {
+  return clip.type === "video" || clip.type === "image" || clip.type === "photo";
 }
 
 function findTransitionPair(clips, time) {

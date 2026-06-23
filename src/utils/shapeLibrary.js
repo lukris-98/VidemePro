@@ -33,8 +33,8 @@ export function createShapeClip(trackId, preset, start) {
     scaleY: shape.scaleY,
     rotation: 0,
     opacity: 0.92,
-    animation: "fadeIn",
-    animDuration: 0.35,
+    animation: "none",
+    animDuration: 0,
     timelineColor: "var(--clip-text)"
   };
 }

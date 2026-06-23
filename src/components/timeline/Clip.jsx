@@ -6,7 +6,7 @@ import { useMediaStore } from "../../store/mediaStore.js";
 import { drawWaveform } from "../../utils/audioHelper.js";
 import { formatTime } from "../../utils/timeFormat.js";
 
-export const Clip = memo(function Clip({ clip, track, pixelsPerSecond, playheadTime }) {
+export const Clip = memo(function Clip({ clip, track, pixelsPerSecond, playheadTime, onOpenContextMenu }) {
   const dragRef = useRef(null);
   const waveformRef = useRef(null);
   const [tooltip, setTooltip] = useState(null);
@@ -17,7 +17,6 @@ export const Clip = memo(function Clip({ clip, track, pixelsPerSecond, playheadT
   const trimClip = useProjectStore((state) => state.trimClip);
   const snapEnabled = useUiStore((state) => state.snapEnabled);
   const setTimelineSelection = useUiStore((state) => state.setTimelineSelection);
-  const openFreeze = useUiStore((state) => state.openFreeze);
   const setCurrentTime = usePlaybackStore((state) => state.setCurrentTime);
   const media = useMediaStore((state) => state.items.find((item) => item.id === clip.mediaId));
   const setPreviewMedia = useMediaStore((state) => state.setPreviewMedia);
@@ -134,7 +133,7 @@ export const Clip = memo(function Clip({ clip, track, pixelsPerSecond, playheadT
         setPreviewMedia(null);
         selectClip(clip.id);
         setCurrentTime(Math.max(clip.start, Math.min(clip.end - 0.01, clip.start + clipDuration / 2)));
-        openFreeze();
+        onOpenContextMenu?.(event, clip);
       }}
       className={`absolute top-2 overflow-hidden rounded-md border text-left text-xs text-white shadow-sm transition-transform duration-100 active:-translate-y-1 ${
         selected ? "border-white" : underPlayhead ? "border-[var(--danger)]" : "border-white/15"

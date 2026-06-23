@@ -75,7 +75,7 @@ function getTrackHeight(track) {
   return 44;
 }
 
-function TrackLabel({ track, isMain, onThumbnailPick, onThumbnailClear, onBeginTrackDrag, onDropTrack }) {
+function TrackLabel({ track, isMain, stickMainTrack, stickyTop = 32, onThumbnailPick, onThumbnailClear, onBeginTrackDrag, onDropTrack }) {
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(track.name);
   const Icon = trackIcons[track.type] ?? Video;
@@ -95,8 +95,11 @@ function TrackLabel({ track, isMain, onThumbnailPick, onThumbnailClear, onBeginT
 
   return (
     <div
-      className={`group flex items-center gap-2 border-b border-[var(--border-soft)] px-2 text-xs ${track.buffer ? "opacity-45" : ""}`}
-      style={{ height: getTrackHeight(track) }}
+      className={`group flex items-center gap-2 border-b border-[var(--border-soft)] bg-[#0f0f0f] px-2 text-xs ${track.buffer ? "opacity-45" : ""}`}
+      style={{
+        height: getTrackHeight(track),
+        ...(track.role === "main" && stickMainTrack ? { position: "sticky", top: stickyTop, bottom: 0, zIndex: 14 } : null)
+      }}
       onDragOver={(event) => {
         if (track.role !== "main") event.preventDefault();
       }}
@@ -238,6 +241,7 @@ export function Timeline() {
   const [draggingPlayhead, setDraggingPlayhead] = useState(false);
   const [marquee, setMarquee] = useState(null);
   const [ghost, setGhost] = useState(null);
+  const [clipMenu, setClipMenu] = useState(null);
   const [trackPanelWidth, setTrackPanelWidth] = useState(160);
   const [viewportWidth, setViewportWidth] = useState(900);
   const [viewport, setViewport] = useState({ left: 0, top: 0, width: 900, height: 180 });
@@ -267,15 +271,25 @@ export function Timeline() {
   const setTimelineMarquee = useUiStore((state) => state.setTimelineMarquee);
   const setTimelineSelection = useUiStore((state) => state.setTimelineSelection);
   const setTimelinePlayheadFrame = useUiStore((state) => state.setTimelinePlayheadFrame);
+  const setTimelineZoom = useUiStore((state) => state.setTimelineZoom);
   const { pixelsPerSecond, seekFromPointer, timeFromPointer } = useTimeline();
   const timelineEnd = tracks.reduce(
     (max, track) => Math.max(max, ...track.clips.map((clip) => clip.end)),
     duration
   );
-  const displayDuration = Math.max(timelineEnd, Math.ceil(viewportWidth / pixelsPerSecond));
+  const timelineItemCount = tracks.reduce((count, track) => count + track.clips.length, 0);
+  const isTimelineEmpty = tracks.every((track) => track.clips.length === 0);
+  const mainTrack = tracks.find((track) => track.role === "main") ?? tracks.find((track) => track.type === "video");
+  const displayTracks = isTimelineEmpty && mainTrack ? [mainTrack] : tracks.filter((track) => !track.buffer || track.clips.length > 0 || track.userTrack);
+  const rulerHeight = isTimelineEmpty ? 0 : 32;
+  const rulerDuration = isTimelineEmpty ? 0 : timelineEnd + timelineItemCount * 15;
+  const displayDuration = Math.max(rulerDuration, Math.ceil(viewportWidth / pixelsPerSecond));
   const laneWidth = Math.max(viewportWidth, displayDuration * pixelsPerSecond);
-  const trackHeight = tracks.reduce((sum, track) => sum + getTrackHeight(track), 0);
-  const totalHeight = 32 + trackHeight;
+  const trackHeight = displayTracks.reduce((sum, track) => sum + getTrackHeight(track), 0);
+  const trackOffset = Math.max(0, (viewport.height - rulerHeight - trackHeight) / 2);
+  const totalHeight = Math.max(viewport.height, rulerHeight + trackOffset + trackHeight);
+  const shouldStickMainTrack = false;
+  const playheadHeight = Math.max(totalHeight, viewport.top + viewport.height);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -342,6 +356,18 @@ export function Timeline() {
     seekFromPointer(event, scrollRef.current);
   };
 
+  useEffect(() => {
+    if (!draggingPlayhead) return undefined;
+    const handleWindowMove = (event) => handleSeek(event);
+    const handleWindowUp = () => setDraggingPlayhead(false);
+    window.addEventListener("mousemove", handleWindowMove);
+    window.addEventListener("mouseup", handleWindowUp, { once: true });
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMove);
+      window.removeEventListener("mouseup", handleWindowUp);
+    };
+  }, [draggingPlayhead]);
+
   const handleDropMedia = (event, trackId) => {
     event.preventDefault();
     const textPayload = readTextDragPayload(event.dataTransfer);
@@ -363,10 +389,10 @@ export function Timeline() {
     const resolvedTrackId = selectAutoTrack(tracks, media.type, trackId);
     const track = tracks.find((item) => item.id === resolvedTrackId);
     const start = snapStart(rawStart, media.duration, track?.clips ?? [], currentTime, snapEnabled, pixelsPerSecond, fps);
-    const color = media.type === "audio" ? "var(--clip-audio)" : media.type === "image" || media.type === "photo" ? "var(--clip-text)" : "var(--clip-video)";
+    const color = media.type === "audio" ? "var(--clip-audio)" : media.type === "image" || media.type === "photo" ? "var(--clip-video)" : "var(--clip-video)";
     addClip(resolvedTrackId, {
       mediaId,
-      type: media.type === "audio" ? "audio" : media.type === "image" || media.type === "photo" ? "overlay" : "video",
+      type: media.type === "audio" ? "audio" : media.type === "image" || media.type === "photo" ? "image" : "video",
       hasAudio: media.type === "video",
       name: media.name,
       start,
@@ -413,6 +439,33 @@ export function Timeline() {
     splitSelectedAt(currentTime);
   };
 
+  const extractAudioFromClip = (clipId) => {
+    const state = useProjectStore.getState();
+    const clip = state.tracks.flatMap((track) => track.clips).find((item) => item.id === clipId);
+    if (!clip?.hasAudio) return;
+    const audioTrackId = selectAutoTrack(state.tracks, "audio");
+    state.addClip(audioTrackId, {
+      ...clip,
+      id: crypto.randomUUID(),
+      type: "audio",
+      hasAudio: false,
+      linkedItemId: clip.id,
+      name: `${clip.name ?? "Clip"} audio`,
+      color: "var(--clip-audio)",
+      timelineColor: "var(--clip-audio)"
+    });
+    useProjectStore.getState().updateClip(clip.id, { hasAudio: false, volume: 0, audioDetached: true });
+  };
+
+  const openClipMenu = (event, clip) => {
+    setClipMenu({
+      clipId: clip.id,
+      canExtractAudio: Boolean(clip.hasAudio),
+      x: event.clientX,
+      y: event.clientY
+    });
+  };
+
   const contentPointFromEvent = (event) => {
     const element = scrollRef.current;
     if (!element) return { x: 0, y: 0 };
@@ -424,7 +477,8 @@ export function Timeline() {
   };
 
   const beginTimelinePointer = (event) => {
-    if (event.target.closest("[data-timeline-ruler]")) {
+    setClipMenu(null);
+    if (event.target.closest("[data-timeline-ruler]") || event.target.closest("[data-timeline-playhead]")) {
       setDraggingPlayhead(true);
       handleSeek(event);
       return;
@@ -473,6 +527,14 @@ export function Timeline() {
     setTimelineMarquee(null);
   };
 
+  const handleTimelineWheel = (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const currentZoom = useUiStore.getState().timelineZoom;
+    const delta = event.deltaY > 0 ? -0.1 : 0.1;
+    setTimelineZoom(Math.max(0.5, Math.min(3, Math.round((currentZoom + delta) * 10) / 10)));
+  };
+
   return (
     <section className="flex h-full min-h-0 flex-col border-t border-[var(--border)] bg-[var(--bg-root)]">
       <div className="flex h-10 items-center justify-between border-b border-[var(--border)] bg-[#0f0f0f] px-3">
@@ -505,13 +567,7 @@ export function Timeline() {
           <ToolbarButton title="Extract audio from selected clip" onClick={() => {
             const state = useProjectStore.getState();
             const clip = state.tracks.flatMap((t) => t.clips).find((c) => c.id === state.selectedClipId);
-            if (!clip?.hasAudio) return;
-            const mediaItems = useMediaStore.getState().items;
-            const media = mediaItems.find((m) => m.id === clip.mediaId);
-            if (!media) return;
-            const audioTrack = state.tracks.find((t) => t.type === "audio");
-            if (!audioTrack) return;
-            state.addClip(audioTrack.id, { ...clip, id: crypto.randomUUID(), type: "audio", hasAudio: true, color: "var(--clip-audio)" });
+            if (clip) extractAudioFromClip(clip.id);
           }}>
             <Music size={16} />
           </ToolbarButton>
@@ -577,12 +633,15 @@ export function Timeline() {
       </div>
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: `${trackPanelWidth}px 4px 1fr` }}>
         <div ref={labelScrollRef} className="overflow-hidden bg-[#0f0f0f]">
-          <div className="sticky top-0 z-20 h-8 border-b border-r border-[var(--border)] bg-[#0f0f0f]" />
-          {tracks.map((track) => (
+          {!isTimelineEmpty ? <div className="sticky top-0 z-20 h-8 border-b border-r border-[var(--border)] bg-[#0f0f0f]" /> : null}
+          {trackOffset > 0 ? <div style={{ height: trackOffset }} /> : null}
+          {displayTracks.map((track) => (
             <TrackLabel
               key={track.id}
               track={track}
               isMain={track.role === "main"}
+              stickMainTrack={shouldStickMainTrack}
+              stickyTop={rulerHeight}
               onThumbnailPick={() => thumbnailInputRef.current?.click()}
               onThumbnailClear={() => setProjectThumbnail("")}
               onBeginTrackDrag={beginTrackDrag}
@@ -603,6 +662,7 @@ export function Timeline() {
           onMouseMove={updateTimelinePointer}
           onMouseUp={endTimelinePointer}
           onMouseLeave={endTimelinePointer}
+          onWheel={handleTimelineWheel}
           onScroll={(event) => {
             if (labelScrollRef.current) labelScrollRef.current.scrollTop = event.currentTarget.scrollTop;
             setViewport({
@@ -615,8 +675,9 @@ export function Timeline() {
           }}
         >
           <div className="relative" style={{ width: laneWidth, height: totalHeight }}>
-            <TimelineRuler duration={displayDuration} pixelsPerSecond={pixelsPerSecond} width={laneWidth} fps={fps} />
-            {tracks.map((track) => (
+            {!isTimelineEmpty ? <TimelineRuler duration={displayDuration} pixelsPerSecond={pixelsPerSecond} width={laneWidth} fps={fps} /> : null}
+            {trackOffset > 0 ? <div style={{ height: trackOffset }} /> : null}
+            {displayTracks.map((track) => (
               <TrackLane
                 key={track.id}
                 track={track}
@@ -629,15 +690,71 @@ export function Timeline() {
                 onDragMediaOver={handleDragMediaOver}
                 ghost={ghost}
                 playheadTime={currentTime}
+                isTimelineEmpty={isTimelineEmpty}
+                stickMainTrack={shouldStickMainTrack}
+                stickyTop={rulerHeight}
+                onOpenClipContextMenu={openClipMenu}
               />
             ))}
             {marquee ? <MarqueeBox marquee={marquee} /> : null}
-            <Playhead currentTime={currentTime} pixelsPerSecond={pixelsPerSecond} height={totalHeight - 4} scrollTop={viewport.top} />
+            <Playhead
+              currentTime={currentTime}
+              pixelsPerSecond={pixelsPerSecond}
+              height={playheadHeight}
+              scrollTop={viewport.top}
+              fps={fps}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setDraggingPlayhead(true);
+                handleSeek(event);
+              }}
+            />
           </div>
         </div>
       </div>
+      {clipMenu ? (
+        <ClipContextMenu
+          menu={clipMenu}
+          onClose={() => setClipMenu(null)}
+          onExtractAudio={() => {
+            extractAudioFromClip(clipMenu.clipId);
+            setClipMenu(null);
+          }}
+        />
+      ) : null}
       <input ref={thumbnailInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleProjectThumbnail} />
     </section>
+  );
+}
+
+function ClipContextMenu({ menu, onClose, onExtractAudio }) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener("mousedown", close, { once: true });
+    window.addEventListener("keydown", close, { once: true });
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed z-[120] min-w-44 rounded-md border border-[var(--border)] bg-[#101010] p-1 text-xs text-[var(--text-secondary)] shadow-xl shadow-black/60"
+      style={{ left: menu.x, top: menu.y }}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        disabled={!menu.canExtractAudio}
+        onClick={onExtractAudio}
+        className="flex h-8 w-full items-center gap-2 rounded px-2 text-left hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Music size={13} />
+        <span>Pisahkan audio</span>
+      </button>
+    </div>
   );
 }
 

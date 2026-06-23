@@ -46,6 +46,9 @@ function renderTimeline(ctx, width, height, time, tracks, mediaItems, videoEleme
     const clip = clips.find((item) => time >= item.start && time <= item.end);
     if (clip) drawClipFrame(ctx, width, height, clip, mediaItems, videoElement, time);
   }
+  for (const clip of getActiveOverlayMediaClips(visualTracks, time)) {
+    drawClipFrame(ctx, width, height, clip, mediaItems, videoElement, time);
+  }
   for (const clip of getActiveTextClips(visualTracks, time)) {
     drawTextClip(ctx, width, height, clip, time);
   }
@@ -325,7 +328,7 @@ export function getActiveStickerClips(tracks, time) {
   return tracks
     .filter((track) => track.type === "overlay" && !track.muted)
     .flatMap((track) => track.clips)
-    .filter((clip) => clip.type !== "shape" && clip.type !== "text" && time >= clip.start && time <= clip.end);
+    .filter((clip) => clip.type !== "shape" && clip.type !== "text" && !isMediaClip(clip) && time >= clip.start && time <= clip.end);
 }
 
 export function getActiveShapeClips(tracks, time) {
@@ -333,6 +336,17 @@ export function getActiveShapeClips(tracks, time) {
     .filter((track) => track.type === "overlay" && !track.muted)
     .flatMap((track) => track.clips)
     .filter((clip) => clip.type === "shape" && time >= clip.start && time <= clip.end);
+}
+
+function getActiveOverlayMediaClips(tracks, time) {
+  return tracks
+    .filter((track) => track.type === "overlay" && !track.muted)
+    .flatMap((track) => track.clips)
+    .filter((clip) => isMediaClip(clip) && time >= clip.start && time <= clip.end);
+}
+
+function isMediaClip(clip) {
+  return clip.type === "video" || clip.type === "image" || clip.type === "photo";
 }
 
 function drawStickerClip(ctx, width, height, clip, time) {

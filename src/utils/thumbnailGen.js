@@ -88,7 +88,7 @@ export function readMediaMetadata(file, url) {
   if (file.type.startsWith("image/")) {
     return readImageMetadata(url);
   }
-  return Promise.resolve({ duration: 3, width: 0, height: 0 });
+  return Promise.resolve({ duration: 5, width: 0, height: 0 });
 }
 
 function readVideoMetadata(url) {
@@ -149,9 +149,9 @@ function readImageMetadata(url) {
       window.clearTimeout(timeout);
       resolve(value);
     };
-    const timeout = window.setTimeout(() => finish({ duration: 3, width: 0, height: 0 }), 8000);
-    image.onload = () => finish({ duration: 3, width: image.naturalWidth, height: image.naturalHeight });
-    image.onerror = () => finish({ duration: 3, width: 0, height: 0 });
+    const timeout = window.setTimeout(() => finish({ duration: 5, width: 0, height: 0 }), 8000);
+    image.onload = () => finish({ duration: 5, width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => finish({ duration: 5, width: 0, height: 0 });
     image.src = url;
   });
 }

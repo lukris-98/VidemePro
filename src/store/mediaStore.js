@@ -48,7 +48,7 @@ export const useMediaStore = create((set) => ({
     file,
     url: URL.createObjectURL(file),
     thumbnailUrl: "",
-    duration: file.type.startsWith("image/") ? 3 : 5,
+    duration: 5,
     width: 0,
     height: 0,
     size: file.size,

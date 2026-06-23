@@ -92,6 +92,8 @@ export function LeftPanel() {
             : "var(--clip-video)";
       addClip(targetTrack.id, {
         mediaId: item.id,
+        type: item.type === "audio" ? "audio" : item.type === "image" || item.type === "photo" ? "image" : "video",
+        hasAudio: item.type === "video",
         name: item.name,
         start: currentTime,
         end: currentTime + item.duration,

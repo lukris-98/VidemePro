@@ -149,7 +149,7 @@ export function selectAutoTrack(tracks, mediaType, requestedTrackId) {
     if (requested && acceptsMediaType(requested, mediaType)) return requested.id;
   }
   if (mediaType === "audio") return emptiestTrackId(tracks, "audio");
-  if (mediaType === "image" || mediaType === "photo" || mediaType === "overlay" || mediaType === "sticker") {
+  if (mediaType === "overlay" || mediaType === "sticker") {
     return emptiestTrackId(tracks, "overlay");
   }
   return MAIN_TRACK_ID;
@@ -158,7 +158,7 @@ export function selectAutoTrack(tracks, mediaType, requestedTrackId) {
 export function acceptsMediaType(track, mediaType) {
   if (!track) return false;
   if (!mediaType) return true;
-  if (track.role === "main") return mediaType === "video";
+  if (track.role === "main") return mediaType === "video" || mediaType === "image" || mediaType === "photo";
   if (track.type === "audio") return mediaType === "audio";
   if (track.type === "overlay" || track.type === "text") return mediaType !== "audio";
   return true;

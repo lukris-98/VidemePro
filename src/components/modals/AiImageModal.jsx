@@ -39,7 +39,7 @@ export function AiImageModal() {
         file: image.file,
         url: image.url,
         thumbnailUrl: image.url,
-        duration: 3,
+        duration: 5,
         width: image.width,
         height: image.height,
         size: image.file.size,
